@@ -3592,7 +3592,7 @@ function render() {
     }
 
     else if (state.boardView === 'resource') {
-    // ── RESOURCE VIEW ── (rows = resource pools with capacity, accepts drag-drop)
+    // ── RESOURCE VIEW ── (rows = resource pools, cells show WO-level cards, click to expand ops)
     const resources = state.filterCraft !== 'All' ? [state.filterCraft] : [...new Set(getAllOps().map(o => o.craft))];
     resources.forEach(craft => {
       const cc = gc(craft);
@@ -3613,6 +3613,7 @@ function render() {
         const pct = dayCap > 0 ? (dayLoad / dayCap) * 100 : 0;
         const heatBg = pct > 95 ? '#DC354518' : pct > 75 ? '#F0AD4E12' : pct > 0 ? '#28A74508' : '';
         
+        // Get assignments for this craft+date, grouped by WO
         const dayAssign = state.assignments.filter(a => {
           const op = allOps.find(o => o.woNumber === a.woNumber && o.opSeq === a.opSeq);
           if (!op || op.craft !== craft) return false;
@@ -3620,32 +3621,62 @@ function render() {
           return a.date === date;
         });
         
+        // Group by WO number
+        const woGroups = {};
+        dayAssign.forEach(a => {
+          if (!woGroups[a.woNumber]) woGroups[a.woNumber] = [];
+          woGroups[a.woNumber].push(a);
+        });
+        
         html += `<div class="day-cell" style="background:${heatBg}" 
           ondragover="event.preventDefault();this.classList.add('drag-over')" 
           ondragleave="this.classList.remove('drag-over')" 
           ondrop="onDrop(event,'${date}',null,'${craft}')">`;
         
-        dayAssign.forEach(a => {
-          const op = allOps.find(o => o.woNumber === a.woNumber && o.opSeq === a.opSeq);
-          if (!op) return;
-          const isDone = a.status === 'Complete';
-          const isPool = isPoolAssignment(a);
-          const statusIcon = isDone ? '✓' : a.status === 'In Progress' ? '▶' : isPool ? '◉' : '●';
-          const statusColor = isDone ? '#28A745' : a.status === 'In Progress' ? '#F0AD4E' : isPool ? '#17A2B8' : '#007BFF';
+        // Render WO-level cards
+        Object.entries(woGroups).forEach(([woNum, assigns]) => {
+          const wo = state.workOrders.find(w => w.woNumber === woNum);
+          const woHrs = assigns.reduce((s,a) => s + a.hours, 0);
+          const opsCount = assigns.length;
+          const allDone = assigns.every(a => a.status === 'Complete');
+          const anyPool = assigns.some(a => isPoolAssignment(a));
+          const anyInProg = assigns.some(a => a.status === 'In Progress');
+          const dc = DEPT_COLORS[wo?.department] || {};
+          const pColor = wo && wo.priority <= 2 ? '#DC3545' : wo && wo.priority <= 3 ? '#F0AD4E' : 'var(--text-secondary)';
+          const expandId = 'res-' + craft.replace(/\s/g,'') + '-' + date + '-' + woNum.replace(/[^a-zA-Z0-9]/g,'');
           
-          html += `<div class="assigned-op ${isDone?'complete':''}" data-dep-node="${a.woNumber}:${op.opSeq}" 
-            style="background:${isDone?'#28A74522':isPool?'#17A2B815':cc.bg+'33'};border:1px solid ${isDone?'#28A74566':isPool?'#17A2B844':cc.border+'66'};${isPool?'border-left:3px solid #17A2B8':''}">
-            <div class="assigned-op-header">
-              <span class="assigned-op-wo" style="color:${cc.text};font-size:9px">${op.woNumber.replace('WO-','')} Op${op.opSeq}</span>
-              <span>
-                <button class="assigned-op-btn" style="color:${statusColor};font-size:10px" onclick="event.stopPropagation();${isPool ? "promoteToEmployee('"+a.id+"')" : "cycleStatus('"+a.id+"')"}" title="${isPool ? 'Assign to employee' : 'Cycle status'}">${isPool ? '👤' : statusIcon}</button>
-                <button class="assigned-op-btn" style="color:#DC354566;font-size:10px" onclick="event.stopPropagation();removeAssignment('${a.id}')" title="Remove">×</button>
+          html += `<div class="assigned-op ${allDone?'complete':''}" 
+            style="background:${allDone?'#28A74515':anyPool?'#17A2B810':cc.bg+'22'};border:1px solid ${allDone?'#28A74544':anyPool?'#17A2B833':cc.border+'44'};cursor:pointer;${anyPool?'border-left:3px solid #17A2B8':''}"
+            onclick="document.getElementById('${expandId}').style.display=document.getElementById('${expandId}').style.display==='none'?'block':'none'">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:9px;font-weight:700;color:${cc.text}">${woNum.replace('WO-','')}</span>
+              <span style="display:flex;gap:3px;align-items:center">
+                ${state.showPMBadges && wo?.isPM ? '<span style="background:#17A2B8;color:white;font-size:6px;padding:1px 3px;border-radius:2px">PM</span>' : ''}
+                <span style="font-size:8px;font-weight:600;color:${pColor}">P${wo?.priority||'?'}</span>
+                <span style="font-size:8px;color:${allDone?'#28A745':anyInProg?'#F0AD4E':anyPool?'#17A2B8':'var(--text-secondary)'}">${allDone?'✓':anyInProg?'▶':anyPool?'◉':'●'}</span>
               </span>
             </div>
-            <div class="assigned-op-meta" style="font-size:8px">
-              ${isPool ? '<span style="color:#17A2B8">Pool</span>' : a.employeeName.split(' ')[0]} • ${a.hours}h
-            </div>
-          </div>`;
+            <div style="font-size:8px;color:var(--text-secondary);margin-top:1px">${opsCount} op${opsCount>1?'s':''} • ${woHrs}h${anyPool ? ' • <span style="color:#17A2B8">pool</span>' : ''}</div>
+          </div>
+          <div id="${expandId}" style="display:none;margin-top:-2px;margin-bottom:4px">`;
+          
+          // Expanded ops detail
+          assigns.forEach(a => {
+            const op = allOps.find(o => o.woNumber === a.woNumber && o.opSeq === a.opSeq);
+            if (!op) return;
+            const isDone = a.status === 'Complete';
+            const isPool = isPoolAssignment(a);
+            html += `<div style="background:var(--bg-base);border:1px solid var(--border);border-radius:3px;padding:3px 5px;margin-top:2px;font-size:8px;display:flex;justify-content:space-between;align-items:center">
+              <span style="color:var(--text-primary)">Op ${op.opSeq}: ${op.description.substring(0,25)}${op.description.length>25?'…':''}</span>
+              <span style="display:flex;gap:4px;align-items:center">
+                <span style="color:var(--text-secondary)">${isPool ? '<span style="color:#17A2B8">Pool</span>' : a.employeeName.split(' ')[0]}</span>
+                <span style="color:var(--accent);font-weight:600">${a.hours}h</span>
+                ${isPool ? `<button style="background:none;border:none;color:#17A2B8;cursor:pointer;font-size:9px;padding:0" onclick="event.stopPropagation();promoteToEmployee('${a.id}')" title="Assign employee">👤</button>` : ''}
+                <button style="background:none;border:none;color:#DC354566;cursor:pointer;font-size:10px;padding:0" onclick="event.stopPropagation();removeAssignment('${a.id}')">×</button>
+              </span>
+            </div>`;
+          });
+          html += `</div>`;
         });
         
         // Capacity bar
