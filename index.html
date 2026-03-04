@@ -1636,9 +1636,9 @@ function showResourceCapModal(craft) {
   });
 }
 
-function addPoolAssignment(woNumber, opSeq, craft, date, hours) {
+function addPoolAssignment(woNumber, opSeq, craft, date, hours, skipRender) {
   state.assignments.push({ id: uid(), woNumber, opSeq, employeeName: '__POOL:' + craft, date, hours, status: 'Allocated' });
-  render();
+  if (!skipRender) render();
 }
 
 function promoteToEmployee(assignmentId) {
@@ -2406,14 +2406,13 @@ function onDrop(e, date, empName, craftPool) {
         }
       } else {
         // Allocate all matching craft ops for this WO to this day
-        let totalAllocated = 0;
         woOps.forEach(woOp => {
           const remain = getRemainingHours(woOp);
           if (remain > 0) {
-            addPoolAssignment(woOp.woNumber, woOp.opSeq, craftPool, date, remain);
-            totalAllocated += remain;
+            addPoolAssignment(woOp.woNumber, woOp.opSeq, craftPool, date, remain, true);
           }
         });
+        render();
       }
     }
     dragData = null;
@@ -3709,8 +3708,8 @@ function render() {
         });
         
         html += `<div class="day-cell" style="background:${heatBg}" 
-          ondragover="event.preventDefault();this.classList.add('drag-over')" 
-          ondragleave="this.classList.remove('drag-over')" 
+          ondragover="onDragOver(event)" 
+          ondragleave="onDragLeave(event)" 
           ondrop="onDrop(event,'${date}',null,'${craft}')">`;
         
         // Render WO-level cards
