@@ -383,6 +383,8 @@ const state = {
   showDateWindow: true,
   showCrossDept: true,
   showPMBadges: true,
+  // Resource capacity: { 'Mechanic': { headcount: 2, hoursPerDay: 16 }, ... }
+  resourceCapacity: {},
 };
 
 // ─── CONSTANTS ───
@@ -417,6 +419,8 @@ try {
   if (ft.showCrossDept !== undefined) state.showCrossDept = ft.showCrossDept;
   if (ft.showPMBadges !== undefined) state.showPMBadges = ft.showPMBadges;
 } catch(e) {}
+// Load resource capacity
+try { state.resourceCapacity = JSON.parse(localStorage.getItem('eam-resource-cap') || '{}'); } catch(e) {}
 
 // ─── SPREADSHEET PARSER ───
 // Uses SheetJS (XLSX) library loaded via CDN in the HTML head
@@ -1531,6 +1535,153 @@ function getUnscheduledOps() {
   });
 }
 
+// ─── RESOURCE CAPACITY ───
+function getResourceCapacity(craft) {
+  // If manual capacity set, use it. Otherwise derive from employees.
+  if (state.resourceCapacity[craft]) return state.resourceCapacity[craft];
+  const craftEmps = state.employees.filter(e => e.craft === craft);
+  return { headcount: craftEmps.length, hoursPerDay: craftEmps.reduce((s, e) => s + e.hoursPerDay, 0), auto: true };
+}
+
+function getResourceDayCapacity(craft, date) {
+  const cap = getResourceCapacity(craft);
+  if (cap.auto) {
+    // Use actual employee availability
+    const craftEmps = state.employees.filter(e => e.craft === craft);
+    return craftEmps.reduce((s, e) => s + getEmpAvailHours(e.name, date), 0);
+  }
+  return cap.hoursPerDay;
+}
+
+function getResourceDayLoad(craft, date) {
+  const allOps = getAllOps();
+  return state.assignments.filter(a => {
+    const op = allOps.find(o => o.woNumber === a.woNumber && o.opSeq === a.opSeq);
+    return op && op.craft === craft && a.date === date;
+  }).reduce((s, a) => s + a.hours, 0);
+}
+
+function isPoolAssignment(a) {
+  return a.employeeName && a.employeeName.startsWith('__POOL:');
+}
+
+function getPoolCraft(a) {
+  return a.employeeName.replace('__POOL:', '');
+}
+
+function setResourceCapacity(craft, headcount, hoursPerDay) {
+  state.resourceCapacity[craft] = { headcount, hoursPerDay, auto: false };
+  try { localStorage.setItem('eam-resource-cap', JSON.stringify(state.resourceCapacity)); } catch(e) {}
+  render();
+}
+
+function resetResourceCapacity(craft) {
+  delete state.resourceCapacity[craft];
+  try { localStorage.setItem('eam-resource-cap', JSON.stringify(state.resourceCapacity)); } catch(e) {}
+  render();
+}
+
+function showResourceCapModal(craft) {
+  const cap = getResourceCapacity(craft);
+  const craftEmps = state.employees.filter(e => e.craft === craft);
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div class="modal" style="min-width:400px">
+      <div class="modal-title">${craft} — Resource Capacity</div>
+      <div class="modal-meta" style="margin-bottom:16px">${craftEmps.length} employees loaded: ${craftEmps.map(e=>e.name).join(', ') || 'none'}</div>
+      <div style="background:var(--bg-base);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;margin-bottom:8px">Capacity Mode</div>
+        <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11px;color:var(--text-primary);cursor:pointer">
+          <input type="radio" name="rc-mode" value="auto" ${cap.auto ? 'checked' : ''} style="accent-color:var(--accent)">
+          <span><strong>Auto</strong> — derive from employee list (${craftEmps.length} × ${craftEmps.length > 0 ? craftEmps[0].hoursPerDay : 8}h = ${craftEmps.reduce((s,e)=>s+e.hoursPerDay,0)}h/day)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11px;color:var(--text-primary);cursor:pointer">
+          <input type="radio" name="rc-mode" value="manual" ${!cap.auto ? 'checked' : ''} style="accent-color:var(--accent)">
+          <span><strong>Manual</strong> — set custom headcount and hours</span>
+        </label>
+      </div>
+      <div id="rc-manual" style="display:${cap.auto ? 'none' : 'block'}">
+        <div class="form-group">
+          <label class="form-label">Headcount</label>
+          <input id="rc-hc" type="number" class="form-input" value="${cap.headcount}" min="1" max="50" step="1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Total Hours Per Day</label>
+          <input id="rc-hpd" type="number" class="form-input" value="${cap.hoursPerDay}" min="1" max="200" step="1">
+          <div style="font-size:9px;color:var(--text-muted);margin-top:3px">Total pool capacity per day (headcount × hours). E.g., 2 mechanics × 8h = 16h</div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+        <button class="btn" onclick="
+          const mode = document.querySelector('input[name=rc-mode]:checked').value;
+          if (mode === 'auto') { resetResourceCapacity('${craft}'); }
+          else { setResourceCapacity('${craft}', parseInt(document.getElementById('rc-hc').value), parseInt(document.getElementById('rc-hpd').value)); }
+          this.closest('.modal-overlay').remove();
+        ">Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  // Toggle manual fields
+  modal.querySelectorAll('input[name=rc-mode]').forEach(r => {
+    r.addEventListener('change', () => {
+      document.getElementById('rc-manual').style.display = r.value === 'manual' ? 'block' : 'none';
+      if (r.value === 'manual' && !document.getElementById('rc-hpd').value) {
+        document.getElementById('rc-hc').value = craftEmps.length || 2;
+        document.getElementById('rc-hpd').value = (craftEmps.length || 2) * 8;
+      }
+    });
+  });
+}
+
+function addPoolAssignment(woNumber, opSeq, craft, date, hours) {
+  state.assignments.push({ id: uid(), woNumber, opSeq, employeeName: '__POOL:' + craft, date, hours, status: 'Allocated' });
+  render();
+}
+
+function promoteToEmployee(assignmentId) {
+  const a = state.assignments.find(x => x.id === assignmentId);
+  if (!a || !isPoolAssignment(a)) return;
+  const craft = getPoolCraft(a);
+  const op = getAllOps().find(o => o.woNumber === a.woNumber && o.opSeq === a.opSeq);
+  if (!op) return;
+  const matchEmps = state.employees.filter(e => e.craft === craft);
+  if (matchEmps.length === 0) { alert('No employees loaded for ' + craft); return; }
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
+  const empOpts = matchEmps.map(e => {
+    const dayLoad = getEmpLoad(e.name, a.date);
+    const dayAvail = getEmpAvailHours(e.name, a.date);
+    return `<option value="${e.name}">${e.name} (${dayLoad}/${dayAvail}h on ${fmtDate(a.date)})</option>`;
+  }).join('');
+  modal.innerHTML = `
+    <div class="modal" style="min-width:400px">
+      <div class="modal-title">Assign to Employee</div>
+      <div class="modal-sub">${op.woNumber} • Op ${op.opSeq}: ${op.description}</div>
+      <div class="modal-meta" style="margin-bottom:12px">${a.hours}h on ${fmtDate(a.date)} — currently allocated to ${craft} pool</div>
+      <div class="form-group">
+        <label class="form-label">Employee</label>
+        <select id="promo-emp" class="form-input"><option value="">Select...</option>${empOpts}</select>
+      </div>
+      <div class="form-actions">
+        <button class="btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+        <button class="btn" onclick="
+          const emp = document.getElementById('promo-emp').value;
+          if (!emp) return;
+          const a = state.assignments.find(x => x.id === '${a.id}');
+          if (a) { a.employeeName = emp; a.status = 'Scheduled'; }
+          this.closest('.modal-overlay').remove();
+          render();
+        ">Assign</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
 // ─── DEPENDENCY VALIDATION ───
 function getDepViolations(assignment) {
   // Returns array of violation descriptions for a given assignment
@@ -1708,7 +1859,8 @@ function removeAssignment(id) {
 function cycleStatus(id) {
   const a = state.assignments.find(x => x.id === id);
   if (!a) return;
-  if (a.status === 'Scheduled') a.status = 'In Progress';
+  if (a.status === 'Allocated') a.status = 'Scheduled'; // promote from pool
+  else if (a.status === 'Scheduled') a.status = 'In Progress';
   else if (a.status === 'In Progress') a.status = 'Complete';
   else a.status = 'Scheduled';
   render();
@@ -2161,6 +2313,15 @@ function exportSchedule() {
       sumRows.push([emp.supervisor || '', emp.name, emp.department, emp.craft, ...dayHours, total]);
     }
   });
+  // Add pool (resource-level) assignments
+  const poolCrafts = [...new Set(state.assignments.filter(a => isPoolAssignment(a) && exportWONums.has(a.woNumber)).map(a => getPoolCraft(a)))];
+  poolCrafts.forEach(craft => {
+    const dayHours = dates.map(d => empSchedule['__POOL:' + craft]?.[d] || 0);
+    const total = dayHours.reduce((s,h) => s+h, 0);
+    if (total > 0) {
+      sumRows.push(['', craft + ' (Pool)', '', craft, ...dayHours, total]);
+    }
+  });
   
   const wsSum = XLSX.utils.aoa_to_sheet(sumRows);
   wsSum['!cols'] = [{wch:18},{wch:22},{wch:16},{wch:14},...dates.map(() => ({wch:12})),{wch:10}];
@@ -2218,14 +2379,34 @@ function onDragEnd(e) {
 function onDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; e.currentTarget.classList.add('drag-over'); }
 function onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
 
-function onDrop(e, date, empName) {
+function onDrop(e, date, empName, craftPool) {
   e.preventDefault();
   e.currentTarget.classList.remove('drag-over');
   if (!dragData) return;
 
   const op = dragData.op;
 
-  // If no employee specified (dept/priority/resource view), open assign modal with date pre-selected
+  // Resource pool drop (By Resource view)
+  if (craftPool && !empName) {
+    if (op.craft !== craftPool) {
+      alert(`Craft mismatch: ${op.craft} operation cannot be allocated to ${craftPool} pool`);
+      dragData = null;
+      return;
+    }
+    if (dragData.type === 'backlog') {
+      if (!checkDateWindow(op.woNumber, date)) { dragData = null; return; }
+      const remain = getRemainingHours(op);
+      const cap = getResourceDayCapacity(craftPool, date);
+      const load = getResourceDayLoad(craftPool, date);
+      const avail = cap - load;
+      const hrs = remain > 0 ? Math.min(remain, avail > 0 ? avail : remain) : op.estHours;
+      addPoolAssignment(op.woNumber, op.opSeq, craftPool, date, hrs);
+    }
+    dragData = null;
+    return;
+  }
+
+  // If no employee specified (dept/priority view), open assign modal with date pre-selected
   if (!empName) {
     if (dragData.type === 'backlog') {
       showAssignModal(op, date);
@@ -2812,7 +2993,7 @@ function render() {
 
   // Filtered assignments (by employee filter AND current week)
   const kpiDateSet = new Set(dates);
-  const kpiAssignments = state.assignments.filter(a => kpiDateSet.has(a.date) && kpiEmpNames.has(a.employeeName));
+  const kpiAssignments = state.assignments.filter(a => kpiDateSet.has(a.date) && (kpiEmpNames.has(a.employeeName) || isPoolAssignment(a)));
 
   // Filtered unscheduled ops
   const kpiUnscheduled = unscheduled.filter(op => {
@@ -3411,41 +3592,71 @@ function render() {
     }
 
     else if (state.boardView === 'resource') {
-    // ── RESOURCE VIEW ── (rows = resources, shows scheduled hours per day)
+    // ── RESOURCE VIEW ── (rows = resource pools with capacity, accepts drag-drop)
     const resources = state.filterCraft !== 'All' ? [state.filterCraft] : [...new Set(getAllOps().map(o => o.craft))];
     resources.forEach(craft => {
       const cc = gc(craft);
+      const cap = getResourceCapacity(craft);
       const craftOps = getAllOps().filter(o => o.craft === craft && (state.filterDept === 'All' || o.department === state.filterDept));
       const totalEst = craftOps.reduce((s,o) => s + o.estHours, 0);
-      const craftEmps = state.employees.filter(e => e.craft === craft && (state.filterDept === 'All' || e.department === state.filterDept));
+      const totalRemain = craftOps.reduce((s,o) => s + getRemainingHours(o), 0);
       
-      html += `<div class="emp-label" style="border-left:3px solid ${cc.badge}">
-        <div class="emp-name" style="color:${cc.text}">${craft}</div>
-        <div class="emp-craft">${craftEmps.length} employees • ${totalEst}h est</div>
+      html += `<div class="emp-label" style="border-left:3px solid ${cc.badge};cursor:pointer" onclick="showResourceCapModal('${craft}')">
+        <div class="emp-name" style="color:${cc.text}">${craft} ${!cap.auto ? '<span style="font-size:8px;color:var(--accent)">⚙</span>' : ''}</div>
+        <div class="emp-craft">${cap.headcount} ${cap.auto ? 'employees' : 'headcount'} • ${cap.hoursPerDay}h/day</div>
+        <div class="emp-craft">${totalRemain > 0 ? totalRemain.toFixed(1) + 'h backlog' : totalEst + 'h est'}</div>
       </div>`;
       
       dates.forEach(date => {
+        const dayLoad = getResourceDayLoad(craft, date);
+        const dayCap = getResourceDayCapacity(craft, date);
+        const pct = dayCap > 0 ? (dayLoad / dayCap) * 100 : 0;
+        const heatBg = pct > 95 ? '#DC354518' : pct > 75 ? '#F0AD4E12' : pct > 0 ? '#28A74508' : '';
+        
         const dayAssign = state.assignments.filter(a => {
           const op = allOps.find(o => o.woNumber === a.woNumber && o.opSeq === a.opSeq);
           if (!op || op.craft !== craft) return false;
           if (state.filterDept !== 'All' && op.department !== state.filterDept) return false;
           return a.date === date;
         });
-        const dayH = dayAssign.reduce((s,a) => s + a.hours, 0);
-        const avail = craftEmps.reduce((s,e) => s + e.hoursPerDay, 0);
         
-        html += `<div class="day-cell">`;
+        html += `<div class="day-cell" style="background:${heatBg}" 
+          ondragover="event.preventDefault();this.classList.add('drag-over')" 
+          ondragleave="this.classList.remove('drag-over')" 
+          ondrop="onDrop(event,'${date}',null,'${craft}')">`;
+        
         dayAssign.forEach(a => {
           const op = allOps.find(o => o.woNumber === a.woNumber && o.opSeq === a.opSeq);
           if (!op) return;
           const isDone = a.status === 'Complete';
-          html += `<div class="assigned-op ${isDone?'complete':''}" data-dep-node="${a.woNumber}:${op.opSeq}" style="background:${cc.bg}33;border:1px solid ${cc.border}66;font-size:9px">
-            <div class="assigned-op-meta">${op.woNumber.replace('WO-','')} Op${op.opSeq} • ${a.employeeName.split(' ')[0]} • ${a.hours}h</div>
+          const isPool = isPoolAssignment(a);
+          const statusIcon = isDone ? '✓' : a.status === 'In Progress' ? '▶' : isPool ? '◉' : '●';
+          const statusColor = isDone ? '#28A745' : a.status === 'In Progress' ? '#F0AD4E' : isPool ? '#17A2B8' : '#007BFF';
+          
+          html += `<div class="assigned-op ${isDone?'complete':''}" data-dep-node="${a.woNumber}:${op.opSeq}" 
+            style="background:${isDone?'#28A74522':isPool?'#17A2B815':cc.bg+'33'};border:1px solid ${isDone?'#28A74566':isPool?'#17A2B844':cc.border+'66'};${isPool?'border-left:3px solid #17A2B8':''}">
+            <div class="assigned-op-header">
+              <span class="assigned-op-wo" style="color:${cc.text};font-size:9px">${op.woNumber.replace('WO-','')} Op${op.opSeq}</span>
+              <span>
+                <button class="assigned-op-btn" style="color:${statusColor};font-size:10px" onclick="event.stopPropagation();${isPool ? "promoteToEmployee('"+a.id+"')" : "cycleStatus('"+a.id+"')"}" title="${isPool ? 'Assign to employee' : 'Cycle status'}">${isPool ? '👤' : statusIcon}</button>
+                <button class="assigned-op-btn" style="color:#DC354566;font-size:10px" onclick="event.stopPropagation();removeAssignment('${a.id}')" title="Remove">×</button>
+              </span>
+            </div>
+            <div class="assigned-op-meta" style="font-size:8px">
+              ${isPool ? '<span style="color:#17A2B8">Pool</span>' : a.employeeName.split(' ')[0]} • ${a.hours}h
+            </div>
           </div>`;
         });
-        if (dayH > 0 || avail > 0) {
-          const pct = avail > 0 ? (dayH/avail)*100 : 0;
-          html += `<div class="day-cell-load ${pct > 100 ? 'over' : ''}">${dayH.toFixed(1)}/${avail}h</div>`;
+        
+        // Capacity bar
+        if (dayCap > 0) {
+          const barColor = pct > 95 ? '#DC3545' : pct > 75 ? '#F0AD4E' : pct > 0 ? '#28A745' : 'var(--text-muted)';
+          html += `<div style="margin-top:auto;padding:2px 4px;font-size:9px;display:flex;align-items:center;gap:4px">
+            <div style="flex:1;height:4px;background:var(--cap-bar-bg);border-radius:2px;overflow:hidden">
+              <div style="height:100%;width:${Math.min(100, pct)}%;background:${barColor};border-radius:2px"></div>
+            </div>
+            <span style="color:${barColor};font-weight:600;white-space:nowrap">${dayLoad.toFixed(1)}/${dayCap}h</span>
+          </div>`;
         }
         html += `</div>`;
       });
