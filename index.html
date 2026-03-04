@@ -2285,7 +2285,54 @@ async function runLocalScheduler(deptLabel, craftLabel) {
   });
 
   let depViols = 0;
+  const usePoolMode = state.employees.length === 0;
+  
   for (const op of sorted) {
+    if (usePoolMode) {
+      // ── RESOURCE POOL MODE: allocate to craft pool ──
+      const earliest = dates.find(d => d >= (op.scheduledStart||dates[0])) || dates[0];
+      const latest = dates.findLast(d => d <= (op.scheduledEnd||dates[dates.length-1])) || dates[dates.length-1];
+      
+      const deps = op.dependencies || [];
+      let depEarliestDate = '';
+      deps.forEach(depSeq => {
+        const depA = [...newA, ...state.assignments].find(a => a.woNumber === op.woNumber && a.opSeq === depSeq);
+        if (depA && depA.date > depEarliestDate) depEarliestDate = depA.date;
+      });
+      const constrainedEarliest = depEarliestDate > earliest ? depEarliestDate : earliest;
+      
+      // Track pool load per craft per day
+      if (!tempLoad['__POOL:' + op.craft]) { tempLoad['__POOL:' + op.craft] = {}; dates.forEach(d => { tempLoad['__POOL:' + op.craft][d] = getResourceDayLoad(op.craft, d); }); }
+      
+      const cap = getResourceCapacity(op.craft);
+      const dailyCap = cap.hoursPerDay || 8;
+      const remain = getRemainingHours(op);
+      if (remain <= 0) continue;
+      
+      // Find best day with most capacity
+      let bestDate = null, bestAvail = -1;
+      for (const date of dates) {
+        if (date < constrainedEarliest || date > latest) continue;
+        const load = tempLoad['__POOL:' + op.craft][date] || 0;
+        const avail = dailyCap - load;
+        if (avail >= remain && avail > bestAvail) { bestAvail = avail; bestDate = date; }
+      }
+      // Fallback: any day with space
+      if (!bestDate) {
+        for (const date of dates) {
+          if (date < constrainedEarliest) continue;
+          const load = tempLoad['__POOL:' + op.craft][date] || 0;
+          if (dailyCap - load > 0) { bestDate = date; break; }
+        }
+      }
+      if (!bestDate) bestDate = constrainedEarliest || dates[0];
+      
+      const a = { id: uid(), woNumber: op.woNumber, opSeq: op.opSeq, employeeName: '__POOL:' + op.craft, date: bestDate, hours: remain, status: 'Allocated' };
+      newA.push(a);
+      tempLoad['__POOL:' + op.craft][bestDate] = (tempLoad['__POOL:' + op.craft][bestDate] || 0) + remain;
+      
+    } else {
+    // ── EMPLOYEE MODE (existing) ──
     const matchEmps = state.employees.filter(e => e.craft === op.craft);
     if (!matchEmps.length) continue;
 
@@ -2327,6 +2374,7 @@ async function runLocalScheduler(deptLabel, craftLabel) {
       newA.push(a);
       tempLoad[bestEmp.name][bestDate] += op.estHours;
     }
+    } // end employee mode
   }
 
   // Count violations in final assignments
@@ -2520,10 +2568,37 @@ function onDragEnd(e) {
 function onDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; e.currentTarget.classList.add('drag-over'); }
 function onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
 
+function onDragStartResourceWO(e, woNumber, craft, sourceDate) {
+  dragData = { type: 'resourceWO', woNumber, craft, sourceDate };
+  e.dataTransfer.effectAllowed = 'move';
+  setTimeout(() => { e.target.classList.add('dragging'); }, 0);
+}
+
 function onDrop(e, date, empName, craftPool) {
   e.preventDefault();
   e.currentTarget.classList.remove('drag-over');
   if (!dragData) return;
+
+  // ── Move resource WO card to a different day ──
+  if (dragData.type === 'resourceWO') {
+    const { woNumber, craft, sourceDate } = dragData;
+    if (date === sourceDate) { dragData = null; return; } // same day, no-op
+    
+    // Find all assignments for this WO+craft on the source date
+    const toMove = state.assignments.filter(a => {
+      if (a.woNumber !== woNumber || a.date !== sourceDate) return false;
+      const op = getAllOps().find(o => o.woNumber === a.woNumber && o.opSeq === a.opSeq);
+      return op && op.craft === (craftPool || craft);
+    });
+    
+    if (toMove.length === 0) { dragData = null; return; }
+    
+    // Move all to the new date
+    toMove.forEach(a => { a.date = date; });
+    dragData = null;
+    render();
+    return;
+  }
 
   const op = dragData.op;
 
@@ -3889,8 +3964,10 @@ function render() {
           const pColor = wo && wo.priority <= 2 ? '#DC3545' : wo && wo.priority <= 3 ? '#F0AD4E' : 'var(--text-secondary)';
           const expandId = 'res-' + craft.replace(/\s/g,'') + '-' + date + '-' + woNum.replace(/[^a-zA-Z0-9]/g,'');
           
-          html += `<div class="assigned-op ${allDone?'complete':''}" 
-            style="background:${allDone?'#28A74515':anyPool?'#17A2B810':cc.bg+'22'};border:1px solid ${allDone?'#28A74544':anyPool?'#17A2B833':cc.border+'44'};cursor:pointer;${anyPool?'border-left:3px solid #17A2B8':''}"
+          html += `<div class="assigned-op ${allDone?'complete':''}" draggable="true"
+            ondragstart="onDragStartResourceWO(event,'${woNum}','${craft}','${date}')"
+            ondragend="onDragEnd(event)"
+            style="background:${allDone?'#28A74515':anyPool?'#17A2B810':cc.bg+'22'};border:1px solid ${allDone?'#28A74544':anyPool?'#17A2B833':cc.border+'44'};cursor:grab;${anyPool?'border-left:3px solid #17A2B8':''}"
             onclick="document.getElementById('${expandId}').style.display=document.getElementById('${expandId}').style.display==='none'?'block':'none'">
             <div style="display:flex;justify-content:space-between;align-items:center">
               <span style="font-size:9px;font-weight:700;color:${cc.text}">${woNum.replace('WO-','')}</span>
