@@ -3846,6 +3846,7 @@ function render() {
                 </span>
               </div>
               <div class="assigned-op-meta">${state.showPMBadges && op.isPM ? '<span style="color:#17A2B8;font-weight:600">PM</span> • ' : ''}Op${op.opSeq} ${a.hours}h${isBorrowed&&state.showCrossDept ? ' • <span style="color:'+opDc.badge+'">'+op.department+'</span>' : ''}${outOfWindow&&state.showDateWindow ? ' • <span style="color:#DC3545">⚠ outside window</span>' : ''} ${a.status !== 'Scheduled' ? '• '+a.status : ''}</div>
+              <div style="font-size:8px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${op.description}">${op.description}</div>
               ${state.showDependencies && depLinks ? `<div class="dep-links">${depLinks}</div>` : ''}
             </div>`;
           });
