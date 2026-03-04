@@ -4007,8 +4007,8 @@ function render() {
             <div style="font-size:8px;color:var(--text-secondary);margin-top:1px;display:flex;justify-content:space-between;align-items:center">
               <span>${opsCount} op${opsCount>1?'s':''} • ${woHrs}h${anyPool ? ' • <span style="color:#17A2B8">pool</span>' : ''}</span>
               <span style="display:flex;gap:2px" onclick="event.stopPropagation()">
-                <button style="background:none;border:1px solid var(--border);border-radius:3px;color:var(--text-secondary);cursor:pointer;font-size:8px;padding:0 3px;line-height:14px" onclick="moveResourceWO('${woNum}','${craft}','${date}',-1)" title="Move to previous day">◀</button>
-                <button style="background:none;border:1px solid var(--border);border-radius:3px;color:var(--text-secondary);cursor:pointer;font-size:8px;padding:0 3px;line-height:14px" onclick="moveResourceWO('${woNum}','${craft}','${date}',1)" title="Move to next day">▶</button>
+                <button style="background:none;border:1px solid var(--border);border-radius:3px;color:var(--text-secondary);cursor:pointer;font-size:8px;padding:0 3px;line-height:14px" onclick="moveResourceWO('${woNum}','${craft}','${date}',-7)" title="Move to previous week">◀ wk</button>
+                <button style="background:none;border:1px solid var(--border);border-radius:3px;color:var(--text-secondary);cursor:pointer;font-size:8px;padding:0 3px;line-height:14px" onclick="moveResourceWO('${woNum}','${craft}','${date}',7)" title="Move to next week">wk ▶</button>
               </span>
             </div>
           </div>
