@@ -132,4 +132,8 @@ Partially assigned ops stay in the backlog with remaining hours displayed.
 
 ## License
 
-MIT
+**Proprietary** — Copyright (c) 2026 mcdougaj. All rights reserved.
+
+This software is available for evaluation and internal use. Commercial licensing is required for redistribution, SaaS hosting, or multi-site deployment.
+
+See [LICENSE](LICENSE) for full terms. Contact [mcdougaj](https://github.com/mcdougaj) for licensing inquiries.
