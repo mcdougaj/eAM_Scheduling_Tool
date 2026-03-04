@@ -122,8 +122,9 @@
   .emp-label { background: var(--bg-card); padding: 6px 10px; display: flex; flex-direction: column; justify-content: center; border-bottom: 1px solid var(--border); }
   .emp-name { font-size: 11px; font-weight: 700; color: var(--text-primary); }
   .emp-craft { font-size: 10px; color: var(--text-secondary); }
-  .day-cell { background: var(--cell-bg); padding: 4px; min-height: 60px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); transition: background 0.15s; }
+  .day-cell { background: var(--cell-bg); padding: 4px; min-height: 60px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); transition: background 0.15s; display: flex; flex-direction: column; }
   .day-cell.drag-over { background: var(--cell-hover); }
+  .day-cell.drag-over > * { pointer-events: none; }
   .day-cell-load { font-size: 9px; color: var(--text-secondary); text-align: right; margin-top: 2px; }
   .day-cell-load.over { color: #DC3545; }
 
@@ -2353,6 +2354,7 @@ function exportSchedule() {
 let dragData = null;    // { type: 'backlog', op } or { type: 'assigned', assignmentId, op }
 
 function onDragStartBacklog(e, op) {
+  console.log('[DRAG START]', op?.woNumber, 'Op', op?.opSeq, op?.craft);
   dragData = { type: 'backlog', op };
   e.dataTransfer.effectAllowed = 'move';
   e.target.classList.add('dragging');
@@ -2380,9 +2382,10 @@ function onDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move';
 function onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
 
 function onDrop(e, date, empName, craftPool) {
+  console.log('[DROP]', { date, empName, craftPool, hasDragData: !!dragData, dragType: dragData?.type, dragOp: dragData?.op?.woNumber });
   e.preventDefault();
   e.currentTarget.classList.remove('drag-over');
-  if (!dragData) return;
+  if (!dragData) { console.log('[DROP] No dragData — aborting'); return; }
 
   const op = dragData.op;
 
