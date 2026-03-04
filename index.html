@@ -1538,10 +1538,15 @@ function getUnscheduledOps() {
 
 // ─── RESOURCE CAPACITY ───
 function getResourceCapacity(craft) {
-  // If manual capacity set, use it. Otherwise derive from employees.
+  // If manual capacity set, use it
   if (state.resourceCapacity[craft]) return state.resourceCapacity[craft];
+  // Derive from employees if available
   const craftEmps = state.employees.filter(e => e.craft === craft);
-  return { headcount: craftEmps.length, hoursPerDay: craftEmps.reduce((s, e) => s + e.hoursPerDay, 0), auto: true };
+  if (craftEmps.length > 0) {
+    return { headcount: craftEmps.length, hoursPerDay: craftEmps.reduce((s, e) => s + e.hoursPerDay, 0), auto: true };
+  }
+  // No employees and no manual config — return unconfigured marker
+  return { headcount: 0, hoursPerDay: 0, auto: true, unconfigured: true };
 }
 
 function getResourceDayCapacity(craft, date) {
@@ -1585,32 +1590,34 @@ function resetResourceCapacity(craft) {
 function showResourceCapModal(craft) {
   const cap = getResourceCapacity(craft);
   const craftEmps = state.employees.filter(e => e.craft === craft);
+  const hasEmps = craftEmps.length > 0;
+  const defaultManual = !hasEmps || !cap.auto || cap.unconfigured;
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.onclick = e => { if (e.target === modal) modal.remove(); };
   modal.innerHTML = `
-    <div class="modal" style="min-width:400px">
+    <div class="modal" style="min-width:420px">
       <div class="modal-title">${craft} — Resource Capacity</div>
-      <div class="modal-meta" style="margin-bottom:16px">${craftEmps.length} employees loaded: ${craftEmps.map(e=>e.name).join(', ') || 'none'}</div>
+      <div class="modal-meta" style="margin-bottom:16px">${hasEmps ? craftEmps.length + ' employees loaded: ' + craftEmps.map(e=>e.name).join(', ') : 'No employees loaded — set capacity manually'}</div>
       <div style="background:var(--bg-base);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px">
         <div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;margin-bottom:8px">Capacity Mode</div>
+        ${hasEmps ? `<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11px;color:var(--text-primary);cursor:pointer">
+          <input type="radio" name="rc-mode" value="auto" ${!defaultManual ? 'checked' : ''} style="accent-color:var(--accent)">
+          <span><strong>Auto</strong> — derive from employee list (${craftEmps.length} × ${craftEmps[0]?.hoursPerDay || 8}h = ${craftEmps.reduce((s,e)=>s+e.hoursPerDay,0)}h/day)</span>
+        </label>` : ''}
         <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11px;color:var(--text-primary);cursor:pointer">
-          <input type="radio" name="rc-mode" value="auto" ${cap.auto ? 'checked' : ''} style="accent-color:var(--accent)">
-          <span><strong>Auto</strong> — derive from employee list (${craftEmps.length} × ${craftEmps.length > 0 ? craftEmps[0].hoursPerDay : 8}h = ${craftEmps.reduce((s,e)=>s+e.hoursPerDay,0)}h/day)</span>
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11px;color:var(--text-primary);cursor:pointer">
-          <input type="radio" name="rc-mode" value="manual" ${!cap.auto ? 'checked' : ''} style="accent-color:var(--accent)">
-          <span><strong>Manual</strong> — set custom headcount and hours</span>
+          <input type="radio" name="rc-mode" value="manual" ${defaultManual ? 'checked' : ''} style="accent-color:var(--accent)">
+          <span><strong>Manual</strong> — set custom headcount and hours per day</span>
         </label>
       </div>
-      <div id="rc-manual" style="display:${cap.auto ? 'none' : 'block'}">
+      <div id="rc-manual" style="display:${defaultManual ? 'block' : 'none'}">
         <div class="form-group">
           <label class="form-label">Headcount</label>
-          <input id="rc-hc" type="number" class="form-input" value="${cap.headcount}" min="1" max="50" step="1">
+          <input id="rc-hc" type="number" class="form-input" value="${cap.headcount || 2}" min="1" max="50" step="1">
         </div>
         <div class="form-group">
           <label class="form-label">Total Hours Per Day</label>
-          <input id="rc-hpd" type="number" class="form-input" value="${cap.hoursPerDay}" min="1" max="200" step="1">
+          <input id="rc-hpd" type="number" class="form-input" value="${cap.hoursPerDay || 16}" min="1" max="200" step="1">
           <div style="font-size:9px;color:var(--text-muted);margin-top:3px">Total pool capacity per day (headcount × hours). E.g., 2 mechanics × 8h = 16h</div>
         </div>
       </div>
@@ -1625,14 +1632,9 @@ function showResourceCapModal(craft) {
       </div>
     </div>`;
   document.body.appendChild(modal);
-  // Toggle manual fields
   modal.querySelectorAll('input[name=rc-mode]').forEach(r => {
     r.addEventListener('change', () => {
       document.getElementById('rc-manual').style.display = r.value === 'manual' ? 'block' : 'none';
-      if (r.value === 'manual' && !document.getElementById('rc-hpd').value) {
-        document.getElementById('rc-hc').value = craftEmps.length || 2;
-        document.getElementById('rc-hpd').value = (craftEmps.length || 2) * 8;
-      }
     });
   });
 }
@@ -3510,6 +3512,13 @@ function render() {
 
     if (state.boardView === 'employee') {
     // ── EMPLOYEE VIEW (existing) ──
+    if (state.employees.length === 0) {
+      html += `<div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--text-secondary)">
+        <div style="font-size:14px;margin-bottom:8px">No employees loaded</div>
+        <div style="font-size:11px">Upload a workbook with an Employees sheet, or use the <strong>By Resource</strong> view to schedule by resource pool.</div>
+        <button class="btn-outline" style="margin-top:12px" onclick="setBoardView('resource')">Switch to Resource View</button>
+      </div>`;
+    } else {
 
     // Group employees by department, filter if dept selected
     const visibleDepts = state.filterDept === 'All' ? DEPARTMENTS : [state.filterDept];
@@ -3602,6 +3611,7 @@ function render() {
         });
       });
     });
+    } // end employees exist
     } // end employee view
 
     else if (state.boardView === 'dept' || state.boardView === 'priority') {
@@ -3697,7 +3707,7 @@ function render() {
       
       html += `<div class="emp-label" style="border-left:3px solid ${cc.badge};cursor:pointer" onclick="showResourceCapModal('${craft}')">
         <div class="emp-name" style="color:${cc.text}">${craft} ${!cap.auto ? '<span style="font-size:8px;color:var(--accent)">⚙</span>' : ''}</div>
-        <div class="emp-craft">${cap.headcount} ${cap.auto ? 'employees' : 'headcount'} • ${cap.hoursPerDay}h/day</div>
+        <div class="emp-craft">${cap.unconfigured ? '<span style="color:var(--accent)">Click to set capacity</span>' : cap.headcount + ' ' + (cap.auto ? 'employees' : 'headcount') + ' • ' + cap.hoursPerDay + 'h/day'}</div>
         <div class="emp-craft">${totalRemain > 0 ? totalRemain.toFixed(1) + 'h backlog' : totalEst + 'h est'}</div>
       </div>`;
       
