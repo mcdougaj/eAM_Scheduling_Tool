@@ -742,8 +742,44 @@ function loadImportResults(wos, emps, importedAssignments) {
     crafts: crafts,
   };
   
-  // If re-importing with assignments, go to summary; otherwise plan view
-  state.view = state.assignments.length > 0 ? 'summary' : 'plan';
+  // Auto-set week to match the earliest WO scheduled start
+  const woStarts = wos.map(w => w.scheduledStart).filter(d => d).sort();
+  if (woStarts.length > 0) {
+    // Find the Monday of the week containing the earliest WO start
+    const firstDate = new Date(woStarts[0] + 'T00:00:00');
+    const day = firstDate.getDay(); // 0=Sun, 1=Mon...
+    const monday = new Date(firstDate);
+    monday.setDate(firstDate.getDate() - (day === 0 ? 6 : day - 1));
+    state.weekStart = monday.toISOString().split('T')[0];
+  }
+  
+  // Auto-confirm all WOs whose dates overlap the selected week
+  const dates = getWeekDates();
+  const weekStart = dates[0];
+  const weekEnd = dates[dates.length - 1];
+  wos.forEach(wo => {
+    const ws = wo.scheduledStart ? wo.scheduledStart.slice(0,10) : '';
+    const we = wo.scheduledEnd ? wo.scheduledEnd.slice(0,10) : '';
+    if ((ws && ws <= weekEnd && we && we >= weekStart) || (!ws && !we)) {
+      state.confirmedWOs.add(wo.woNumber);
+    }
+  });
+  
+  // Auto-allocate WOs to resource pools by their scheduled dates
+  if (state.assignments.length === 0) {
+    const allocated = autoAllocateByDates();
+    if (allocated > 0) {
+      state.importStats.autoAllocated = allocated;
+    }
+  }
+  
+  // Go to schedule board (resource view) if we have allocations, otherwise plan
+  if (state.assignments.length > 0) {
+    state.view = 'schedule';
+    state.boardView = emps.length > 0 ? 'employee' : 'resource';
+  } else {
+    state.view = 'plan';
+  }
   render();
   return state.importStats;
 }
@@ -1507,6 +1543,108 @@ function getWeekDates() {
 }
 function fmtDate(d) { return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' }); }
 function uid() { return Math.random().toString(36).substr(2,9); }
+
+// ─── AUTO-ALLOCATE: Place WO ops on resource board by scheduled dates ───
+function autoAllocateByDates() {
+  const dates = getWeekDates();
+  const weekStart = dates[0];
+  const weekEnd = dates[dates.length - 1];
+  
+  // Get WOs that overlap with this week
+  const wos = state.workOrders.filter(wo => {
+    if (state.confirmedWOs.size > 0 && !state.confirmedWOs.has(wo.woNumber)) return false;
+    if (!wo.scheduledStart && !wo.scheduledEnd) return false;
+    const ws = wo.scheduledStart ? wo.scheduledStart.slice(0,10) : weekStart;
+    const we = wo.scheduledEnd ? wo.scheduledEnd.slice(0,10) : weekEnd;
+    // Does the WO window overlap with this week?
+    return ws <= weekEnd && we >= weekStart;
+  });
+  
+  if (wos.length === 0) return 0;
+  
+  let allocCount = 0;
+  
+  wos.forEach(wo => {
+    const ws = wo.scheduledStart ? wo.scheduledStart.slice(0,10) : weekStart;
+    const we = wo.scheduledEnd ? wo.scheduledEnd.slice(0,10) : weekEnd;
+    
+    // Get days this week that fall within the WO window
+    const woDays = dates.filter(d => d >= ws && d <= we);
+    if (woDays.length === 0) return;
+    
+    // Get unscheduled ops for this WO
+    const ops = wo.operations.filter(o => !isFullyScheduled(wo.woNumber, o.opSeq));
+    if (ops.length === 0) return;
+    
+    // Sort ops respecting dependencies (topological sort)
+    const sorted = [];
+    const placed = new Set();
+    let remaining = [...ops];
+    let safety = 0;
+    while (remaining.length > 0 && safety < 200) {
+      safety++;
+      let progressed = false;
+      for (let i = remaining.length - 1; i >= 0; i--) {
+        const op = remaining[i];
+        const deps = op.dependencies || [];
+        if (deps.length === 0 || deps.every(d => placed.has(d))) {
+          sorted.push(op);
+          placed.add(op.opSeq);
+          remaining.splice(i, 1);
+          progressed = true;
+        }
+      }
+      if (!progressed) { sorted.push(...remaining); break; }
+    }
+    
+    // Spread ops across available days
+    // Strategy: sequential ops go on successive days, parallel ops share a day
+    let dayIdx = 0;
+    const opDayMap = {}; // opSeq → date assigned
+    
+    sorted.forEach(op => {
+      const deps = op.dependencies || [];
+      
+      if (deps.length > 0) {
+        // Place after latest dependency
+        const latestDepDay = deps.reduce((max, depSeq) => {
+          const depDate = opDayMap[depSeq];
+          if (depDate && depDate > max) return depDate;
+          return max;
+        }, '');
+        
+        if (latestDepDay) {
+          // Place on next day after latest dep (or same day if last day)
+          const depDayIdx = woDays.indexOf(latestDepDay);
+          dayIdx = Math.min(depDayIdx + 1, woDays.length - 1);
+        }
+      }
+      
+      // Ensure we don't exceed available days
+      if (dayIdx >= woDays.length) dayIdx = woDays.length - 1;
+      
+      const date = woDays[dayIdx];
+      const remain = getRemainingHours(op);
+      if (remain > 0) {
+        // Check if already allocated (skip duplicates)
+        const existing = state.assignments.find(a => 
+          a.woNumber === wo.woNumber && a.opSeq === op.opSeq && isPoolAssignment(a)
+        );
+        if (!existing) {
+          state.assignments.push({
+            id: uid(), woNumber: wo.woNumber, opSeq: op.opSeq,
+            employeeName: '__POOL:' + op.craft, date, hours: remain, status: 'Allocated'
+          });
+          allocCount++;
+        }
+      }
+      opDayMap[op.opSeq] = date;
+    });
+  });
+  
+  return allocCount;
+}
+
 
 function getAllOps() {
   const ops = [];
@@ -3249,11 +3387,13 @@ function render() {
           </div>
           <div style="font-size:10px;color:var(--text-secondary)">
             Departments: ${state.importStats.depts.join(', ')} &nbsp;|&nbsp; Crafts: ${state.importStats.crafts.join(', ')}
+            ${state.importStats.autoAllocated ? `<br><span style="color:#17A2B8;font-weight:600">⚡ ${state.importStats.autoAllocated} ops auto-allocated to resource pools by WO dates</span>` : ''}
           </div>
           <div style="display:flex;gap:8px;margin-top:12px">
-            ${state.importStats.assignments > 0 ? `
-              <button class="btn btn-green" style="flex:1;padding:12px;font-size:13px;border-radius:6px" onclick="setView('summary')">View Summary →</button>
-              <button class="btn-outline" style="flex:1;padding:12px;font-size:12px;border-radius:6px" onclick="setView('schedule')">Schedule Board</button>
+            ${state.importStats.assignments > 0 || state.importStats.autoAllocated > 0 ? `
+              <button class="btn btn-green" style="flex:1;padding:12px;font-size:13px;border-radius:6px" onclick="state.boardView='resource';setView('schedule')">Resource Board →</button>
+              ${state.importStats.emps > 0 ? `<button class="btn-outline" style="flex:1;padding:12px;font-size:12px;border-radius:6px" onclick="state.boardView='employee';setView('schedule')">Employee Board</button>` : ''}
+              <button class="btn-outline" style="padding:12px;font-size:12px;border-radius:6px" onclick="setView('summary')">Summary</button>
             ` : `
               <button class="btn btn-green" style="flex:1;padding:12px;font-size:13px;border-radius:6px" onclick="setView('plan')">Continue to Plan Week →</button>
             `}
