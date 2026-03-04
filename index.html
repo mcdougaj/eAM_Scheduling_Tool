@@ -1652,25 +1652,30 @@ function getAllOps() {
   return ops;
 }
 
-function getAssignedHours(woNumber, opSeq) {
-  return state.assignments.filter(a => a.woNumber === woNumber && a.opSeq === opSeq).reduce((s, a) => s + a.hours, 0);
+function getAssignedHours(woNumber, opSeq, excludePool) {
+  return state.assignments.filter(a => {
+    if (a.woNumber !== woNumber || a.opSeq !== opSeq) return false;
+    if (excludePool && isPoolAssignment(a)) return false;
+    return true;
+  }).reduce((s, a) => s + a.hours, 0);
 }
 
-function getRemainingHours(op) {
-  return Math.max(0, op.estHours - getAssignedHours(op.woNumber, op.opSeq));
+function getRemainingHours(op, excludePool) {
+  return Math.max(0, op.estHours - getAssignedHours(op.woNumber, op.opSeq, excludePool));
 }
 
-function isFullyScheduled(woNumber, opSeq) {
+function isFullyScheduled(woNumber, opSeq, excludePool) {
   const op = getAllOps().find(o => o.woNumber === woNumber && o.opSeq === opSeq);
   if (!op) return false;
-  return getAssignedHours(woNumber, opSeq) >= op.estHours;
+  return getAssignedHours(woNumber, opSeq, excludePool) >= op.estHours;
 }
 
 function getUnscheduledOps() {
+  // In employee/priority view, pool allocations don't count — ops still need named assignment
+  const excludePool = state.boardView === 'employee' || state.boardView === 'priority';
   return getAllOps().filter(op => {
     if (state.confirmedWOs.size > 0 && !state.confirmedWOs.has(op.woNumber)) return false;
-    // Show ops with no assignments OR with remaining hours still to assign
-    return !isFullyScheduled(op.woNumber, op.opSeq);
+    return !isFullyScheduled(op.woNumber, op.opSeq, excludePool);
   });
 }
 
