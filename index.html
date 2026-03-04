@@ -3362,13 +3362,78 @@ function render() {
     // Sidebar (backlog)
     html += `<div class="sidebar">
       <div class="sidebar-header">
-        <span class="sidebar-title">Backlog (${filteredBacklog.length})</span>
+        <span class="sidebar-title">Backlog (${state.boardView === 'resource' || state.boardView === 'dept' ? [...new Set(filteredBacklog.map(o=>o.woNumber))].length + ' WOs' : filteredBacklog.length})</span>
       </div>
       <div class="sidebar-content">`;
 
     if (filteredBacklog.length === 0) {
       html += `<div style="padding:20px;text-align:center;color:var(--text-secondary);font-size:11px">All operations scheduled ✓</div>`;
     }
+
+    // Resource/Dept view: show WO-level backlog cards
+    if (state.boardView === 'resource' || state.boardView === 'dept') {
+      // Group backlog ops by WO
+      const woBacklog = {};
+      filteredBacklog.forEach(op => {
+        if (!woBacklog[op.woNumber]) woBacklog[op.woNumber] = [];
+        woBacklog[op.woNumber].push(op);
+      });
+      
+      html += `<div style="font-size:9px;color:var(--text-muted);padding:0 8px 6px">Showing ${Object.keys(woBacklog).length} WOs</div>`;
+      
+      Object.entries(woBacklog).forEach(([woNum, ops]) => {
+        const wo = state.workOrders.find(w => w.woNumber === woNum);
+        if (!wo) return;
+        const dc = DEPT_COLORS[wo.department] || {};
+        const totalEst = ops.reduce((s, o) => s + o.estHours, 0);
+        const totalRemain = ops.reduce((s, o) => s + getRemainingHours(o), 0);
+        const totalAssigned = totalEst - totalRemain;
+        const isPartial = totalAssigned > 0 && totalRemain > 0;
+        const pColor = wo.priority <= 2 ? '#DC3545' : wo.priority <= 3 ? '#F0AD4E' : 'var(--text-secondary)';
+        const crafts = [...new Set(ops.map(o => o.craft))];
+        const expandId = 'bl-wo-' + woNum.replace(/[^a-zA-Z0-9]/g, '');
+        
+        // WO card — draggable (drags first unscheduled op)
+        const firstOp = ops[0];
+        html += `<div class="op-card" style="border-left:3px solid ${dc.badge || 'var(--border)'};${isPartial ? 'border-right:3px solid #F0AD4E' : ''}" draggable="true"
+          ondragstart="onDragStartBacklog(event, getAllOps().find(o=>o.woNumber==='${firstOp.woNumber}'&&o.opSeq===${firstOp.opSeq}))"
+          ondragend="onDragEnd(event)">
+          <div class="op-card-header" onclick="document.getElementById('${expandId}').style.display=document.getElementById('${expandId}').style.display==='none'?'block':'none'" style="cursor:pointer">
+            <span class="op-wo">${wo.woNumber}</span>
+            <span style="display:flex;gap:3px;align-items:center">
+              ${isPartial ? `<span class="tag" style="background:#F0AD4E;font-size:7px;padding:1px 4px">${totalAssigned.toFixed(1)}/${totalEst}h</span>` : ''}
+              ${state.showPMBadges && wo.isPM ? `<span class="tag" style="background:#17A2B8;font-size:7px;padding:1px 4px">PM</span>` : ''}
+              <span class="tag" style="background:${pColor}22;color:${pColor};font-size:7px;padding:1px 4px;border:1px solid ${pColor}44">P${wo.priority}</span>
+              <span class="tag" style="background:${dc.badge||'#666'};font-size:7px">${wo.department}</span>
+            </span>
+          </div>
+          <div class="op-desc">${wo.description}</div>
+          <div class="op-meta">
+            <span>${ops.length} ops</span><span>•</span>
+            <span>${isPartial ? `<span style="color:#F0AD4E;font-weight:600">${totalRemain.toFixed(1)}h remaining</span>` : totalEst + 'h est'}</span><span>•</span>
+            <span>${crafts.join(', ')}</span>
+            ${wo.scheduledStart ? `<span>•</span><span style="font-size:8px;color:var(--text-muted)">${fmtDate(wo.scheduledStart)}–${fmtDate(wo.scheduledEnd)}</span>` : ''}
+          </div>
+          <div id="${expandId}" style="display:none;margin-top:4px;border-top:1px solid var(--border);padding-top:4px">
+            ${ops.map(op => {
+              const cc = gc(op.craft);
+              const opAssH = getAssignedHours(op.woNumber, op.opSeq);
+              const opRemH = getRemainingHours(op);
+              return `<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0;font-size:9px;cursor:pointer;border-bottom:1px solid var(--border)" 
+                onclick="event.stopPropagation();showAssignModal(getAllOps().find(o=>o.woNumber==='${op.woNumber}'&&o.opSeq===${op.opSeq}))">
+                <span style="color:var(--text-primary)">Op ${op.opSeq}: ${op.description.substring(0,30)}${op.description.length>30?'…':''}</span>
+                <span style="display:flex;gap:4px;align-items:center">
+                  <span class="tag" style="background:${cc.badge};font-size:7px">${op.craft}</span>
+                  <span style="color:${opRemH < op.estHours && opRemH > 0 ? '#F0AD4E' : 'var(--text-secondary)'};font-size:8px">${opRemH < op.estHours ? opAssH + '/' : ''}${op.estHours}h</span>
+                </span>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      });
+    }
+    // Employee/Priority view: show op-level backlog cards (original behavior)
+    else {
     filteredBacklog.forEach((op, i) => {
       const cc = gc(op.craft);
       const dc = DEPT_COLORS[op.department] || {};
@@ -3405,6 +3470,7 @@ function render() {
         </div>
       </div>`;
     });
+    }
     html += `</div></div>`;
 
     // Schedule grid
