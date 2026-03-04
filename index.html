@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>eAM Operations Scheduler — Spreadsheet Import</title>
+<title>Joeyi — Operations Scheduling Workbench</title>
 <style>
   /* ─── THEME VARIABLES ─── */
   :root {
@@ -1150,7 +1150,7 @@ function buildSystemPrompt() {
     }).join('\n    ')}`
   ).join('\n');
 
-  return `You are an eAM Scheduling Assistant. You help maintenance planners schedule work order operations to employees. Data is loaded from uploaded spreadsheets.
+  return `You are a Joeyi Scheduling Assistant. You help maintenance planners schedule work order operations to employees. Data is loaded from uploaded spreadsheets.
 
 DATA: ${state.importLoaded ? 'Loaded: ' + (state.importStats?.wos || 0) + ' WOs, ' + (state.importStats?.ops || 0) + ' ops, ' + (state.importStats?.emps || 0) + ' employees' : 'No data loaded yet — user needs to upload a spreadsheet on the Import Data tab'}
 
@@ -2710,7 +2710,7 @@ function render() {
   <!-- HEADER -->
   <div class="header">
     <div>
-      <div class="logo-text">⚙ eAM SCHEDULER</div>
+      <div class="logo-text">⚙ Joeyi</div>
       <div class="logo-sub">Operations Scheduling Workbench <span style="background:#17A2B8;color:white;font-size:8px;padding:1px 5px;border-radius:3px;margin-left:4px;font-weight:700;letter-spacing:0.5px">IMPORT</span></div>
     </div>
     <div class="nav">
@@ -4056,7 +4056,7 @@ function render() {
 
     <!-- TITLE -->
     <div class="guide-section" style="text-align:center;padding:32px">
-      <div class="guide-h1">⚙ eAM Operations Scheduler</div>
+      <div class="guide-h1">⚙ Joeyi — Operations Scheduling Workbench</div>
       <div class="guide-p" style="font-size:13px;color:var(--text-primary);margin-bottom:0">User Guide & Methodology</div>
       <div class="guide-p" style="font-size:10px;margin-top:8px">Version 1.0 &bull; Spreadsheet Import Edition</div>
     </div>
@@ -4064,7 +4064,7 @@ function render() {
     <!-- OVERVIEW -->
     <div class="guide-section">
       <div class="guide-h2">Overview</div>
-      <div class="guide-p">The eAM Operations Scheduler is a weekly maintenance scheduling workbench. It imports work orders and employee rosters from Excel, then provides visual tools to plan, schedule, and track operations across your maintenance workforce. The tool supports both manual drag-and-drop scheduling and AI-assisted auto-scheduling.</div>
+      <div class="guide-p">Joeyi is a weekly maintenance scheduling workbench. It imports work orders and employee rosters from Excel, then provides visual tools to plan, schedule, and track operations across your maintenance workforce. The tool supports both manual drag-and-drop scheduling and AI-assisted auto-scheduling.</div>
       <div class="guide-grid">
         <div class="guide-card">
           <div class="guide-card-title">🎯 Purpose</div>
