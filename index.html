@@ -2388,19 +2388,33 @@ function onDrop(e, date, empName, craftPool) {
 
   // Resource pool drop (By Resource view)
   if (craftPool && !empName) {
-    if (op.craft !== craftPool) {
-      alert(`Craft mismatch: ${op.craft} operation cannot be allocated to ${craftPool} pool`);
-      dragData = null;
-      return;
-    }
     if (dragData.type === 'backlog') {
       if (!checkDateWindow(op.woNumber, date)) { dragData = null; return; }
-      const remain = getRemainingHours(op);
-      const cap = getResourceDayCapacity(craftPool, date);
-      const load = getResourceDayLoad(craftPool, date);
-      const avail = cap - load;
-      const hrs = remain > 0 ? Math.min(remain, avail > 0 ? avail : remain) : op.estHours;
-      addPoolAssignment(op.woNumber, op.opSeq, craftPool, date, hrs);
+      
+      // Get ALL unscheduled ops for this WO that match the craft pool
+      const wo = state.workOrders.find(w => w.woNumber === op.woNumber);
+      if (!wo) { dragData = null; return; }
+      const woOps = wo.operations.filter(o => o.craft === craftPool && !isFullyScheduled(o.woNumber, o.opSeq));
+      
+      if (woOps.length === 0) {
+        // Single op from different craft — just allocate it
+        if (op.craft === craftPool) {
+          const remain = getRemainingHours(op);
+          addPoolAssignment(op.woNumber, op.opSeq, craftPool, date, remain > 0 ? remain : op.estHours);
+        } else {
+          alert(`No ${craftPool} ops remaining on ${op.woNumber}`);
+        }
+      } else {
+        // Allocate all matching craft ops for this WO to this day
+        let totalAllocated = 0;
+        woOps.forEach(woOp => {
+          const remain = getRemainingHours(woOp);
+          if (remain > 0) {
+            addPoolAssignment(woOp.woNumber, woOp.opSeq, craftPool, date, remain);
+            totalAllocated += remain;
+          }
+        });
+      }
     }
     dragData = null;
     return;
