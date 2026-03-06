@@ -3313,8 +3313,10 @@ function renderGanttView(html, dates) {
   // SINGLE scroll container — both axes
   // ══════════════════════════════════════════
   html += `<div id="gantt-scroll" onscroll="ganttScrollHandler(this)"
-    style="flex:1;overflow:auto;min-height:0">
-    <div style="min-width:${labelW + gridW}px">`;
+    style="flex:1;overflow:auto;min-height:0;position:relative">
+    <div id="gantt-grid-inner" style="min-width:${labelW + gridW}px;position:relative">`;
+  // SVG dep-lines overlay (sits on top, pointer-events:none)
+  html += `<svg id="gantt-dep-svg" style="position:absolute;top:0;left:0;pointer-events:none;overflow:visible;z-index:10"></svg>`;
 
   // ────────────────────────────────────────
   // HEADER: two sticky rows
@@ -3606,6 +3608,7 @@ function renderGanttView(html, dates) {
             const barWid  = Math.max(obSpan * cellW - 2, 10);
             const totalHrs = allA.reduce((s,a)=>s+a.hours,0);
             html += `<div class="gantt-op-bar"
+              data-dep-node="${wo.woNumber}:${op.opSeq}"
               draggable="true"
               ondragstart="ganttOpBarDragStart(event,'${wo.woNumber}',${op.opSeq})"
               ondragend="ganttOpBarDragEnd(event)"
@@ -3666,11 +3669,13 @@ function renderGanttView(html, dates) {
     html += `<div id="gantt-autoscroll" data-idx="${scrollIdx}" data-cw="${cellW}" data-lw="${labelW}" style="display:none"></div>`;
   }
 
+  html += `</div>`; // end gantt-grid-inner
   return html;
 }
 
 function ganttScrollHandler(el) {
-  // Single scroll container — no sync needed, kept for template reference
+  // Redraw dep lines on scroll so they stay aligned with bars
+  if (state.showDepLines) requestAnimationFrame(drawGanttDepLines);
 }
 
 function ganttAutoScroll() {
@@ -4242,6 +4247,112 @@ function ganttHoursAddDay() {
 
   ganttHoursRenderBody(wo, op);
   render();
+}
+
+
+// ══════════════════════════════════════════════════════════
+// GANTT DEPENDENCY LINES
+// Draws SVG arrows between op bars using data-dep-node attrs
+// Respects state.showDepLines toggle (same as schedule board)
+// ══════════════════════════════════════════════════════════
+function drawGanttDepLines() {
+  const svg = document.getElementById('gantt-dep-svg');
+  if (!svg) return;
+
+  if (!state.showDepLines || !state.showDependencies) {
+    svg.innerHTML = '';
+    return;
+  }
+
+  const scroll = document.getElementById('gantt-scroll');
+  const inner  = document.getElementById('gantt-grid-inner');
+  if (!scroll || !inner) return;
+
+  // Size the SVG to cover the full scrollable content
+  const W = inner.scrollWidth, H = inner.scrollHeight;
+  svg.setAttribute('width', W);
+  svg.setAttribute('height', H);
+  svg.style.width  = W + 'px';
+  svg.style.height = H + 'px';
+
+  // Build position map from op bar data-dep-node elements
+  const nodes = inner.querySelectorAll('[data-dep-node]');
+  const posMap = {};
+  const innerRect = inner.getBoundingClientRect();
+  nodes.forEach(el => {
+    const key = el.getAttribute('data-dep-node');
+    const r = el.getBoundingClientRect();
+    posMap[key] = {
+      x: r.left - innerRect.left + scroll.scrollLeft,
+      y: r.top  - innerRect.top  + scroll.scrollTop,
+      w: r.width,
+      h: r.height
+    };
+  });
+
+  const arrowId = 'gdep';
+  let lines = `<defs>
+    <marker id="${arrowId}-ok"        markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
+      <polygon points="0 0, 6 2, 0 4" fill="#28A745"/></marker>
+    <marker id="${arrowId}-violation" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
+      <polygon points="0 0, 6 2, 0 4" fill="#DC3545"/></marker>
+    <marker id="${arrowId}-warn"      markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
+      <polygon points="0 0, 6 2, 0 4" fill="#F0AD4E"/></marker>
+  </defs>`;
+
+  state.workOrders.forEach(wo => {
+    // Only draw for expanded WOs (op bars are only in DOM when expanded)
+    if (!state.ganttExpanded.has(wo.woNumber)) return;
+    wo.operations.forEach(op => {
+      if (!op.dependencies || !op.dependencies.length) return;
+      const toKey  = `${wo.woNumber}:${op.opSeq}`;
+      const toPos  = posMap[toKey];
+      if (!toPos) return;
+
+      op.dependencies.forEach(depSeq => {
+        const fromKey = `${wo.woNumber}:${depSeq}`;
+        const fromPos = posMap[fromKey];
+        if (!fromPos) return;
+
+        // Color: red = violation (successor starts before predecessor ends)
+        //        amber = same-day warning, green = OK
+        const toStart   = op.schedStart   || (state.assignments.find(a=>a.woNumber===wo.woNumber&&a.opSeq===op.opSeq)||{}).date;
+        const fromEnd   = wo.operations.find(o=>o.opSeq===depSeq)?.schedEnd
+                          || (state.assignments.filter(a=>a.woNumber===wo.woNumber&&a.opSeq===depSeq).map(a=>a.date).sort().slice(-1)[0]);
+        let cls = 'ok';
+        if (toStart && fromEnd) {
+          if (toStart < fromEnd) cls = 'violation';
+          else if (toStart === fromEnd) cls = 'warn';
+        }
+
+        // Arrow from right-center of predecessor → left-center of successor
+        const x1 = fromPos.x + fromPos.w;
+        const y1 = fromPos.y + fromPos.h / 2;
+        const x2 = toPos.x;
+        const y2 = toPos.y + toPos.h / 2;
+
+        if (Math.abs(x2-x1) < 2 && Math.abs(y2-y1) < 2) return;
+
+        // Elbow routing: go right, then vertical, then into target
+        const gap  = Math.max(16, Math.abs(x2-x1) * 0.4);
+        const cx1  = x1 + gap;
+        const cx2  = x2 - gap;
+        const path = `M${x1},${y1} C${cx1},${y1} ${cx2},${y2} ${x2},${y2}`;
+
+        const strokeColor = cls === 'violation' ? '#DC354588' : cls === 'warn' ? '#F0AD4E88' : '#28A74588';
+        lines += `<path d="${path}" fill="none" stroke="${strokeColor}" stroke-width="1.5"
+          stroke-dasharray="${cls==='violation'?'5,3':cls==='warn'?'4,2':'none'}"
+          marker-end="url(#${arrowId}-${cls})"/>`;
+      });
+    });
+  });
+
+  svg.innerHTML = lines;
+}
+
+// Hook: redraw gantt dep lines after render and on scroll
+function _ganttDepRedraw() {
+  if (state.view === 'gantt') requestAnimationFrame(drawGanttDepLines);
 }
 
 
@@ -6262,6 +6373,7 @@ function render() {
 
   document.getElementById('app').innerHTML = html;
   setTimeout(ganttAutoScroll, 0);
+  setTimeout(drawGanttDepLines, 80);
   
   // Re-render chat messages after DOM update
   if (state.chatOpen) renderChat();
