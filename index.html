@@ -3449,19 +3449,28 @@ function renderGanttView(html, dates) {
       const barInRange = bStart >= 0 && bSpan > 0;
 
       // ── WO Row ──
+      const isExp = state.ganttExpanded.has(wo.woNumber);
       html += `<div style="display:flex;height:${WO_H}px;position:relative"
         ondragover="ganttWORowOver(event,'${wo.woNumber}')"
-        ondrop="(_ganttResizeWO&&(_ganttResizeWO==='start:${wo.woNumber}'||_ganttResizeWO==='end:${wo.woNumber}'))?ganttDropResize(event,'${wo.woNumber}'):ganttDropWO(event,'${wo.woNumber}')">`;
+        ondrop="ganttWORowDrop(event,'${wo.woNumber}')">`;
 
       html += mkLabel(WO_H, barColor,
-        `<div style="min-width:0;flex:1">
-          <div style="display:flex;align-items:center;gap:4px;margin-bottom:1px">
-            <span style="font-weight:700;color:var(--accent);font-size:11px">${wo.woNumber}</span>
-            ${wo.isPM?'<span style="font-size:7px;background:#17A2B822;color:#17A2B8;border:1px solid #17A2B844;padding:1px 3px;border-radius:2px">PM</span>':''}
-            <span style="font-size:7px;background:${pColor}22;color:${pColor};border:1px solid ${pColor}44;padding:1px 3px;border-radius:2px">P${wo.priority}</span>
+        `<div style="min-width:0;flex:1;display:flex;align-items:center;gap:6px;cursor:pointer"
+          onclick="ganttToggleWO('${wo.woNumber}')">
+          <span style="font-size:11px;color:var(--text-secondary);flex-shrink:0;
+            display:inline-block;transition:transform 0.15s;
+            transform:${isExp?'rotate(90deg)':'rotate(0)'}"
+          >▶</span>
+          <div style="min-width:0;flex:1">
+            <div style="display:flex;align-items:center;gap:4px;margin-bottom:1px">
+              <span style="font-weight:700;color:var(--accent);font-size:11px">${wo.woNumber}</span>
+              ${wo.isPM?'<span style="font-size:7px;background:#17A2B822;color:#17A2B8;border:1px solid #17A2B844;padding:1px 3px;border-radius:2px">PM</span>':''}
+              <span style="font-size:7px;background:${pColor}22;color:${pColor};border:1px solid ${pColor}44;padding:1px 3px;border-radius:2px">P${wo.priority}</span>
+              <span style="font-size:8px;color:var(--text-muted)">${wo.operations.length}op</span>
+            </div>
+            <div style="font-size:10px;color:var(--text-primary);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:${labelW-44}px" title="${wo.description.replace(/"/g,'')}">${wo.description}</div>
+            <div style="font-size:9px;color:var(--text-secondary)">${wo.department}${ws?' · '+fmtDate(ws)+'–'+fmtDate(we):''}</div>
           </div>
-          <div style="font-size:10px;color:var(--text-primary);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:${labelW-28}px" title="${wo.description.replace(/"/g,'')}">${wo.description}</div>
-          <div style="font-size:9px;color:var(--text-secondary)">${wo.department}${ws?' · '+fmtDate(ws)+'–'+fmtDate(we):''}</div>
         </div>`);
 
       // Day cells (tinted in bar range)
@@ -3483,10 +3492,10 @@ function renderGanttView(html, dates) {
         const handleW = Math.min(10, Math.floor(barWid/4));
         html += `<div class="gantt-bar${wo.isPM?' pm-bar':''}${pct===100?' complete-bar':''}"
           draggable="true"
-          ondragstart="ganttBarDragStart(event,'${wo.woNumber}',${bStart*cellW})"
+          ondragstart="ganttBarDragStart(event,'${wo.woNumber}')"
           ondragend="ganttBarDragEnd(event)"
           ondragover="event.stopPropagation();ganttWORowOver(event,'${wo.woNumber}')"
-          ondrop="event.stopPropagation();(_ganttResizeWO&&(_ganttResizeWO==='start:${wo.woNumber}'||_ganttResizeWO==='end:${wo.woNumber}'))?ganttDropResize(event,'${wo.woNumber}'):ganttDropWO(event,'${wo.woNumber}')"
+          ondrop="event.stopPropagation();ganttWORowDrop(event,'${wo.woNumber}')"
           onclick="event.stopPropagation()"
           title="${wo.woNumber}: ${wo.description}&#10;${ws?fmtDate(ws)+' → '+fmtDate(we):'No dates set'}&#10;${pct}% complete&#10;↔ Drag bar to move · ◁ left handle to change start · ▷ right handle to change end"
           style="position:absolute;top:50%;transform:translateY(-50%);
@@ -3498,7 +3507,7 @@ function renderGanttView(html, dates) {
           <div style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;background:rgba(255,255,255,0.2);pointer-events:none;border-radius:4px 0 0 4px"></div>
           <!-- LEFT resize handle (change start date) -->
           <div draggable="true"
-            ondragstart="ganttResizeStartDragStart(event,'${wo.woNumber}')"
+            ondragstart="ganttResizeLeftStart(event,'${wo.woNumber}')"
             ondragend="ganttResizeDragEnd(event)"
             ondragover="event.stopPropagation();event.preventDefault()"
             onclick="event.stopPropagation()"
@@ -3512,7 +3521,7 @@ function renderGanttView(html, dates) {
           </span>
           <!-- RIGHT resize handle (change end date) -->
           <div draggable="true"
-            ondragstart="ganttResizeDragStart(event,'${wo.woNumber}')"
+            ondragstart="ganttResizeRightStart(event,'${wo.woNumber}')"
             ondragend="ganttResizeDragEnd(event)"
             ondragover="event.stopPropagation();event.preventDefault()"
             onclick="event.stopPropagation()"
@@ -3525,7 +3534,7 @@ function renderGanttView(html, dates) {
       html += `</div>`; // end WO row
 
       // ── Op Rows ── (only if this WO is expanded)
-      if (state.ganttExpanded.has(wo.woNumber)) {
+      if (isExp) {
         wo.operations.forEach(op => {
           const empA  = state.assignments.filter(a=>a.woNumber===wo.woNumber&&a.opSeq===op.opSeq&&!isPoolAssignment(a));
           const poolA = state.assignments.filter(a=>a.woNumber===wo.woNumber&&a.opSeq===op.opSeq&&isPoolAssignment(a));
@@ -3538,9 +3547,7 @@ function renderGanttView(html, dates) {
           const sc   = full?'#28A745':part?'#F0AD4E':poolA.length?'#17A2B8':'#6C757D';
           const sl   = full?'✓':part?'~':poolA.length?'pool':'open';
 
-          html += `<div style="display:flex;height:${OP_H}px;position:relative"
-            ondragover="if(_ganttDragOp&&_ganttDragOp.wo==='${wo.woNumber}'&&_ganttDragOp.op===${op.opSeq}){event.preventDefault();event.dataTransfer.dropEffect=event.ctrlKey?'copy':'move'}"
-            ondrop="ganttDropOp(event,'${wo.woNumber}',${op.opSeq},ganttDropDate(event))">`;
+          html += `<div style="display:flex;height:${OP_H}px;position:relative">`;
 
           html += mkLabel(OP_H, cc.badge+'55',
             `<span style="color:var(--text-muted);font-size:8px;flex-shrink:0;margin-right:2px">Op${op.opSeq}</span>
@@ -3562,9 +3569,9 @@ function renderGanttView(html, dates) {
               border-right:${isMon&&i>0?'2px solid var(--accent)':'1px solid var(--border)'};
               border-bottom:1px solid var(--border);box-sizing:border-box;
               background:${isTod?'var(--accent-glow)':inW?cc.badge+'0A':isWE?'var(--bg-surface)':'transparent'}"
-              ondragover="if(_ganttDragOp&&_ganttDragOp.wo==='${wo.woNumber}'&&_ganttDragOp.op===${op.opSeq}){event.stopPropagation();event.preventDefault();this.style.outline='2px solid var(--accent)'}"
-              ondragleave="this.style.outline=''"
-              ondrop="this.style.outline='';event.stopPropagation();ganttDropOp(event,'${wo.woNumber}',${op.opSeq},'${d}')">`;
+              ondragover="ganttCellOver(event,'${wo.woNumber}',${op.opSeq})"
+              ondragleave="ganttCellLeave(event)"
+              ondrop="ganttCellDrop(event,'${wo.woNumber}',${op.opSeq},'${d}')">`;
             if (dayEmp.length) {
               const hrs  = dayEmp.reduce((s,a)=>s+a.hours,0);
               const done = dayEmp.every(a=>a.status==='Complete');
@@ -3572,10 +3579,10 @@ function renderGanttView(html, dates) {
                 ? [...new Set(dayEmp.map(a=>a.employeeName.trim().split(/\s+/).map(w=>w[0]||'').join('')))].join('+') + ' ' + hrs+'h'
                 : hrs+'h';
               html += `<div draggable="true"
-                ondragstart="ganttOpDragStart(event,'${wo.woNumber}',${op.opSeq},'${d}')"
-                ondragend="ganttOpDragEnd(event)"
+                ondragstart="ganttChipDragStart(event,'${wo.woNumber}',${op.opSeq},'${d}')"
+                ondragend="ganttChipDragEnd(event)"
                 ondragover="event.stopPropagation();event.preventDefault()"
-                ondrop="event.stopPropagation();ganttDropOp(event,'${wo.woNumber}',${op.opSeq},'${d}')"
+                ondrop="ganttCellDrop(event,'${wo.woNumber}',${op.opSeq},'${d}')"
                 style="position:absolute;inset:2px;background:${cc.badge};border-radius:2px;
                   display:flex;align-items:center;padding:0 2px;overflow:hidden;
                   opacity:${done?0.5:1};cursor:grab;z-index:3"
@@ -3585,10 +3592,10 @@ function renderGanttView(html, dates) {
             } else if (dayPool.length) {
               const hrs = dayPool.reduce((s,a)=>s+a.hours,0);
               html += `<div draggable="true"
-                ondragstart="ganttOpDragStart(event,'${wo.woNumber}',${op.opSeq},'${d}')"
-                ondragend="ganttOpDragEnd(event)"
+                ondragstart="ganttChipDragStart(event,'${wo.woNumber}',${op.opSeq},'${d}')"
+                ondragend="ganttChipDragEnd(event)"
                 ondragover="event.stopPropagation();event.preventDefault()"
-                ondrop="event.stopPropagation();ganttDropOp(event,'${wo.woNumber}',${op.opSeq},'${d}')"
+                ondrop="ganttCellDrop(event,'${wo.woNumber}',${op.opSeq},'${d}')"
                 style="position:absolute;inset:2px;background:#17A2B8;border-radius:2px;
                   display:flex;align-items:center;padding:0 2px;overflow:hidden;
                   opacity:0.65;cursor:grab;z-index:3"
@@ -3639,208 +3646,195 @@ function ganttAutoScroll() {
 }
 
 // ══════════════════════════════════════════════════════════
-// GANTT DRAG UTILITIES
+// GANTT DRAG STATE — single object, no ambiguity
+// type: 'bar' | 'resize-left' | 'resize-right' | 'chip'
 // ══════════════════════════════════════════════════════════
+const ganttDS = { type: null, woNumber: null, opSeq: null, fromDate: null, grabOffsetPx: 0 };
 
-// Always read live cellW from state (never hardcode)
-function _gcw() { return getGanttCellW(); }
+function _gcw()  { return getGanttCellW(); }
+function _glw()  { return 280; }
 
-// clientX → gantt date string (subtracts label, scroll, optional grab offset)
-function ganttDropDate(e, grabOffset) {
-  const scroll = document.getElementById('gantt-scroll');
-  if (!scroll) return null;
-  const labelW = 280;
-  const cellW  = _gcw();
-  const rect   = scroll.getBoundingClientRect();
-  const relX   = (e.clientX - rect.left) + scroll.scrollLeft - labelW - (grabOffset || _ganttDragOffsetPx || 0);
-  const dates  = getGanttDates();
-  const idx    = Math.max(0, Math.min(dates.length-1, Math.floor(relX / cellW)));
-  return dates[idx] || null;
-}
-
-// clientX → date index
-function _ganttXtoIdx(clientX, grabOffset) {
+// clientX → column index in ganttDates[]
+function _ganttCol(clientX, grabOffset) {
   const scroll = document.getElementById('gantt-scroll');
   if (!scroll) return 0;
-  const labelW = 280;
-  const cellW  = _gcw();
-  const rect   = scroll.getBoundingClientRect();
-  const relX   = (clientX - rect.left) + scroll.scrollLeft - labelW - (grabOffset || 0);
+  const rect = scroll.getBoundingClientRect();
+  const relX  = (clientX - rect.left) + scroll.scrollLeft - _glw() - (grabOffset || 0);
   const dates  = getGanttDates();
-  return Math.max(0, Math.min(dates.length-1, Math.floor(relX / cellW)));
+  return Math.max(0, Math.min(dates.length - 1, Math.floor(relX / _gcw())));
 }
-function _ganttXtoDate(clientX, grabOffset) {
-  return getGanttDates()[_ganttXtoIdx(clientX, grabOffset)] || null;
+function _ganttColDate(clientX, grabOffset) {
+  return getGanttDates()[_ganttCol(clientX, grabOffset)] || null;
 }
 
-// Date arithmetic helpers
-function _addDays(dateStr, n) {
-  const d = new Date(dateStr + 'T00:00:00');
-  d.setDate(d.getDate() + n);
-  return d.toISOString().split('T')[0];
+// Date helpers
+function _addDays(d, n) {
+  const dt = new Date(d + 'T00:00:00'); dt.setDate(dt.getDate() + n);
+  return dt.toISOString().split('T')[0];
 }
-function _daysBetween(a, b) {
-  return Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00')) / 86400000);
+function _dayDiff(a, b) {
+  return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
 }
 
 // Auto-scroll when dragging near edges
+let _ganttScrollTimer = null;
 function _ganttEdgeCheck(clientX) {
   const scroll = document.getElementById('gantt-scroll');
   if (!scroll || _ganttScrollTimer) return;
   const rect = scroll.getBoundingClientRect();
-  const relX = clientX - rect.left;
   const EDGE = 80;
-  if (relX < EDGE) {
+  const relX = clientX - rect.left;
+  if (relX < EDGE)
     _ganttScrollTimer = setInterval(() => { scroll.scrollLeft = Math.max(0, scroll.scrollLeft - 40); }, 50);
-  } else if (relX > rect.width - EDGE) {
+  else if (relX > rect.width - EDGE)
     _ganttScrollTimer = setInterval(() => { scroll.scrollLeft += 40; }, 50);
-  }
 }
 function _ganttEdgeClear() {
   if (_ganttScrollTimer) { clearInterval(_ganttScrollTimer); _ganttScrollTimer = null; }
 }
 
-// ══════════════════════════════════════════════════════════
-// WO BAR — MOVE  (drag entire bar left/right)
-// ══════════════════════════════════════════════════════════
-function ganttBarDragStart(e, woNumber, barLeftPx) {
-  _ganttDragWO   = woNumber;
-  _ganttDragOp   = null;
-  _ganttResizeWO = null;
+// ── WO BAR: drag middle = MOVE ──
+function ganttBarDragStart(e, woNumber) {
+  ganttDS.type      = 'bar';
+  ganttDS.woNumber  = woNumber;
+  ganttDS.grabOffsetPx = e.clientX - e.currentTarget.getBoundingClientRect().left;
   e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', woNumber);
-  const rect = e.currentTarget.getBoundingClientRect();
-  _ganttDragOffsetPx = e.clientX - rect.left;   // px from bar left edge where grabbed
-  e.currentTarget.style.opacity = '0.55';
+  e.dataTransfer.setData('text/plain', 'bar');
+  e.currentTarget.style.opacity = '0.5';
 }
 function ganttBarDragEnd(e) {
   if (e.currentTarget) e.currentTarget.style.opacity = '';
-  _ganttDragWO = null;
+  ganttDS.type = null;
   _ganttEdgeClear();
 }
 
-function ganttWORowOver(e, woNumber) {
-  const isMove   = _ganttDragWO === woNumber;
-  const isResize = _ganttResizeWO && (_ganttResizeWO === 'start:'+woNumber || _ganttResizeWO === 'end:'+woNumber);
-  if (isMove || isResize) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    _ganttEdgeCheck(e.clientX);
-  }
-}
-
-function ganttDropWO(e, woNumber) {
-  e.preventDefault();
-  _ganttEdgeClear();
-  if (_ganttDragWO !== woNumber) return;
-
-  const targetDate = ganttDropDate(e);   // date under cursor, offset by grab position
-  if (!targetDate) return;
-
-  const wo = state.workOrders.find(w => w.woNumber === woNumber);
-  if (!wo || !wo.scheduledStart || !wo.scheduledEnd) return;
-
-  const origStart = wo.scheduledStart.slice(0,10);
-  const origEnd   = wo.scheduledEnd.slice(0,10);
-  const offset    = _daysBetween(origStart, targetDate);
-  if (offset === 0) return;
-
-  wo.scheduledStart = _addDays(origStart, offset);
-  wo.scheduledEnd   = _addDays(origEnd,   offset);
-  state.assignments.filter(a => a.woNumber === woNumber)
-    .forEach(a => { a.date = _addDays(a.date, offset); });
-
-  _ganttDragWO = null;
-  render();
-}
-
-// ══════════════════════════════════════════════════════════
-// WO BAR — RESIZE START DATE  (drag left edge)
-// ══════════════════════════════════════════════════════════
-function ganttResizeStartDragStart(e, woNumber) {
+// ── WO BAR: drag LEFT handle = move start date ──
+function ganttResizeLeftStart(e, woNumber) {
   e.stopPropagation();
-  _ganttResizeWO = 'start:' + woNumber;
-  _ganttDragWO   = null;
-  _ganttDragOp   = null;
-  _ganttDragOffsetPx = 0;
+  ganttDS.type      = 'resize-left';
+  ganttDS.woNumber  = woNumber;
+  ganttDS.grabOffsetPx = 0;
   e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', 'resizeStart:' + woNumber);
-  e.currentTarget.closest('.gantt-bar').style.opacity = '0.7';
+  e.dataTransfer.setData('text/plain', 'resize-left');
+  const bar = e.currentTarget.closest('.gantt-bar');
+  if (bar) bar.style.opacity = '0.6';
 }
-// WO BAR — RESIZE END DATE  (drag right edge)
-function ganttResizeDragStart(e, woNumber) {
+
+// ── WO BAR: drag RIGHT handle = move end date ──
+function ganttResizeRightStart(e, woNumber) {
   e.stopPropagation();
-  _ganttResizeWO = 'end:' + woNumber;
-  _ganttDragWO   = null;
-  _ganttDragOp   = null;
-  _ganttDragOffsetPx = 0;
+  ganttDS.type      = 'resize-right';
+  ganttDS.woNumber  = woNumber;
+  ganttDS.grabOffsetPx = 0;
   e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', 'resizeEnd:' + woNumber);
-  e.currentTarget.closest('.gantt-bar').style.opacity = '0.7';
+  e.dataTransfer.setData('text/plain', 'resize-right');
+  const bar = e.currentTarget.closest('.gantt-bar');
+  if (bar) bar.style.opacity = '0.6';
 }
+
 function ganttResizeDragEnd(e) {
-  const bar = e.currentTarget.closest ? e.currentTarget.closest('.gantt-bar') : null;
+  const bar = e.currentTarget ? e.currentTarget.closest('.gantt-bar') : null;
   if (bar) bar.style.opacity = '';
-  _ganttResizeWO = null;
+  ganttDS.type = null;
   _ganttEdgeClear();
 }
 
-// Unified drop handler for both resize types
-function ganttDropResize(e, woNumber) {
+// ── WO ROW: dragover — accept bar moves and resizes for this WO ──
+function ganttWORowOver(e, woNumber) {
+  if (!ganttDS.type) return;
+  if (ganttDS.woNumber !== woNumber) return;
+  if (ganttDS.type === 'chip') return; // chips handled by cell
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  _ganttEdgeCheck(e.clientX);
+}
+
+// ── WO ROW: drop ──
+function ganttWORowDrop(e, woNumber) {
   e.preventDefault();
   _ganttEdgeClear();
-  const resizeType = _ganttResizeWO;
-  if (!resizeType) return;
-
-  const newDate = _ganttXtoDate(e.clientX, 0);
-  if (!newDate) return;
+  if (!ganttDS.type || ganttDS.woNumber !== woNumber) return;
 
   const wo = state.workOrders.find(w => w.woNumber === woNumber);
   if (!wo) return;
 
-  if (resizeType === 'start:' + woNumber) {
-    // Move start date — don't allow past end
-    const we = wo.scheduledEnd ? wo.scheduledEnd.slice(0,10) : newDate;
-    if (newDate > we) return;
-    wo.scheduledStart = newDate;
-  } else if (resizeType === 'end:' + woNumber) {
-    // Move end date — don't allow before start
-    const ws = wo.scheduledStart ? wo.scheduledStart.slice(0,10) : newDate;
-    if (newDate < ws) return;
-    wo.scheduledEnd = newDate;
+  const ws = wo.scheduledStart ? wo.scheduledStart.slice(0, 10) : null;
+  const we = wo.scheduledEnd   ? wo.scheduledEnd.slice(0, 10)   : null;
+
+  if (ganttDS.type === 'bar') {
+    // Move whole WO: drop date = where the bar's LEFT edge lands (subtract grab offset)
+    const targetDate = _ganttColDate(e.clientX, ganttDS.grabOffsetPx);
+    if (!targetDate || !ws || !we) { ganttDS.type = null; return; }
+    const offset = _dayDiff(ws, targetDate);
+    if (offset === 0) { ganttDS.type = null; return; }
+    wo.scheduledStart = _addDays(ws, offset);
+    wo.scheduledEnd   = _addDays(we, offset);
+    state.assignments.filter(a => a.woNumber === woNumber)
+      .forEach(a => { a.date = _addDays(a.date, offset); });
+
+  } else if (ganttDS.type === 'resize-left') {
+    // Move start date only
+    const newStart = _ganttColDate(e.clientX, 0);
+    if (!newStart) { ganttDS.type = null; return; }
+    if (we && newStart > we) { ganttDS.type = null; return; } // can't go past end
+    wo.scheduledStart = newStart;
+
+  } else if (ganttDS.type === 'resize-right') {
+    // Move end date only
+    const newEnd = _ganttColDate(e.clientX, 0);
+    if (!newEnd) { ganttDS.type = null; return; }
+    if (ws && newEnd < ws) { ganttDS.type = null; return; } // can't go before start
+    wo.scheduledEnd = newEnd;
   }
 
-  _ganttResizeWO = null;
+  ganttDS.type = null;
   render();
 }
 
-// ══════════════════════════════════════════════════════════
-// OP CHIP — MOVE  (drag to different day)
-// ══════════════════════════════════════════════════════════
-function ganttOpDragStart(e, woNumber, opSeq, fromDate) {
-  _ganttDragOp   = { wo: woNumber, op: opSeq, fromDate };
-  _ganttDragWO   = null;
-  _ganttResizeWO = null;
+// ── OP CHIP: drag start ──
+function ganttChipDragStart(e, woNumber, opSeq, fromDate) {
+  e.stopPropagation();
+  ganttDS.type     = 'chip';
+  ganttDS.woNumber = woNumber;
+  ganttDS.opSeq    = opSeq;
+  ganttDS.fromDate = fromDate;
+  ganttDS.grabOffsetPx = 0;
   e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', 'op');
-  _ganttDragOffsetPx = 0;
-  e.currentTarget.style.opacity = '0.45';
+  e.dataTransfer.setData('text/plain', 'chip');
+  e.currentTarget.style.opacity = '0.4';
 }
-function ganttOpDragEnd(e) {
+function ganttChipDragEnd(e) {
   if (e.currentTarget) e.currentTarget.style.opacity = '';
-  _ganttDragOp = null;
+  ganttDS.type = null;
   _ganttEdgeClear();
 }
 
-// Drop op chip → move all assignments for that op on fromDate → toDate
-// Also auto-expands WO window if dropped outside it
-function ganttDropOp(e, woNumber, opSeq, toDate) {
+// ── OP CELL: dragover ──
+function ganttCellOver(e, woNumber, opSeq) {
+  if (ganttDS.type !== 'chip') return;
+  if (ganttDS.woNumber !== woNumber || ganttDS.opSeq !== opSeq) return;
+  e.stopPropagation();
   e.preventDefault();
-  _ganttEdgeClear();
-  if (!_ganttDragOp || _ganttDragOp.wo !== woNumber || _ganttDragOp.op !== opSeq) return;
-  const fromDate = _ganttDragOp.fromDate;
-  if (!toDate || fromDate === toDate) { _ganttDragOp = null; return; }
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.style.outline = '2px solid var(--accent)';
+  e.currentTarget.style.outlineOffset = '-2px';
+}
+function ganttCellLeave(e) {
+  e.currentTarget.style.outline = '';
+}
 
+// ── OP CELL: drop ──
+function ganttCellDrop(e, woNumber, opSeq, toDate) {
+  e.stopPropagation();
+  e.preventDefault();
+  e.currentTarget.style.outline = '';
+  if (ganttDS.type !== 'chip') return;
+  if (ganttDS.woNumber !== woNumber || ganttDS.opSeq !== opSeq) return;
+  const fromDate = ganttDS.fromDate;
+  ganttDS.type = null;
+  if (!fromDate || fromDate === toDate) return;
+
+  // Move all assignments for this op on fromDate → toDate
   state.assignments
     .filter(a => a.woNumber === woNumber && a.opSeq === opSeq && a.date === fromDate)
     .forEach(a => { a.date = toDate; });
@@ -3852,65 +3846,43 @@ function ganttDropOp(e, woNumber, opSeq, toDate) {
     if (!wo.scheduledEnd   || toDate > wo.scheduledEnd.slice(0,10))   wo.scheduledEnd   = toDate;
   }
 
-  _ganttDragOp = null;
+  // Preserve scroll position through render
+  const scroll = document.getElementById('gantt-scroll');
+  const sx = scroll ? scroll.scrollLeft : 0, sy = scroll ? scroll.scrollTop : 0;
   render();
+  requestAnimationFrame(() => {
+    const s = document.getElementById('gantt-scroll');
+    if (s) { s.scrollLeft = sx; s.scrollTop = sy; }
+  });
 }
 
-// ══════════════════════════════════════════════════════════
-// OP CHIP — COPY/SPREAD  (ctrl+drag or right-click → copy to day)
-// Drop on an EMPTY day cell within WO window → create new assignment there
-// ══════════════════════════════════════════════════════════
-function ganttOpDropEmpty(e, woNumber, opSeq, toDate) {
-  // If dragging an op chip but dropping on empty cell — copy the hours to that day
-  e.preventDefault();
-  _ganttEdgeClear();
-  if (!_ganttDragOp || _ganttDragOp.wo !== woNumber || _ganttDragOp.op !== opSeq) return;
-  const fromDate = _ganttDragOp.fromDate;
-  if (!toDate || fromDate === toDate) { _ganttDragOp = null; return; }
+// Legacy aliases (keep for any old calls in templates)
+function ganttBarDragStart_OLD() {}
+function ganttDropWO() {}
+function ganttDropResize() {}
+function ganttDropOp() {}
+function ganttOpDragStart() {}
+function ganttResizeDragStart() {}
+function ganttResizeStartDragStart() {}
+function ganttWORowOver() {}
 
-  const srcAssignments = state.assignments.filter(
-    a => a.woNumber === woNumber && a.opSeq === opSeq && a.date === fromDate
-  );
-  if (!srcAssignments.length) { _ganttDragOp = null; return; }
 
-  if (e.ctrlKey || e.metaKey) {
-    // COPY mode (ctrl+drag): keep original, clone to new date
-    srcAssignments.forEach(a => {
-      state.assignments.push({ ...a, date: toDate });
-    });
-  } else {
-    // MOVE mode: move to new date
-    srcAssignments.forEach(a => { a.date = toDate; });
-  }
-
-  // Expand WO window
-  const wo = state.workOrders.find(w => w.woNumber === woNumber);
-  if (wo) {
-    if (!wo.scheduledStart || toDate < wo.scheduledStart.slice(0,10)) wo.scheduledStart = toDate;
-    if (!wo.scheduledEnd   || toDate > wo.scheduledEnd.slice(0,10))   wo.scheduledEnd   = toDate;
-  }
-
-  _ganttDragOp = null;
-  render();
-}
-
+// ── Gantt expand/collapse per WO ──
 function ganttToggleWO(woNumber) {
   if (state.ganttExpanded.has(woNumber)) {
     state.ganttExpanded.delete(woNumber);
   } else {
     state.ganttExpanded.add(woNumber);
   }
-  // Re-render without resetting scroll position
   const scroll = document.getElementById('gantt-scroll');
-  const savedX = scroll ? scroll.scrollLeft : 0;
-  const savedY = scroll ? scroll.scrollTop  : 0;
+  const sx = scroll ? scroll.scrollLeft : 0;
+  const sy = scroll ? scroll.scrollTop  : 0;
   render();
   requestAnimationFrame(() => {
     const s = document.getElementById('gantt-scroll');
-    if (s) { s.scrollLeft = savedX; s.scrollTop = savedY; }
+    if (s) { s.scrollLeft = sx; s.scrollTop = sy; }
   });
 }
-
 function ganttExpandAll() {
   state.workOrders.forEach(wo => state.ganttExpanded.add(wo.woNumber));
   const scroll = document.getElementById('gantt-scroll');
