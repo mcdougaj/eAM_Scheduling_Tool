@@ -632,13 +632,17 @@ function processWOSheet(rows) {
       const depsStr = COL.depends ? String(row[COL.depends] || '') : '';
       const deps = depsStr ? depsStr.split(/[,;\s]+/).map(Number).filter(n => n > 0) : [];
       
-      woMap[lastWO].operations.push({
-        opSeq: opSeq,
-        description: COL.opDesc ? String(row[COL.opDesc] || `Op ${opSeq}`) : `Op ${opSeq}`,
-        craft: COL.craft ? String(row[COL.craft] || 'General') : 'General',
-        estHours: COL.estHours ? (parseFloat(row[COL.estHours]) || 1) : 1,
-        dependencies: deps
-      });
+      // Only add operation if it doesn't already exist (handles multi-assignment rows)
+      const opExists = woMap[lastWO].operations.some(o => o.opSeq === opSeq);
+      if (!opExists) {
+        woMap[lastWO].operations.push({
+          opSeq: opSeq,
+          description: COL.opDesc ? String(row[COL.opDesc] || `Op ${opSeq}`) : `Op ${opSeq}`,
+          craft: COL.craft ? String(row[COL.craft] || 'General') : 'General',
+          estHours: COL.estHours ? (parseFloat(row[COL.estHours]) || 1) : 1,
+          dependencies: deps
+        });
+      }
       
       // Import assignment data if present
       const assignedTo = COL.assignedTo ? String(row[COL.assignedTo] || '').trim() : '';
