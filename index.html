@@ -410,6 +410,7 @@ const state = {
   boardView: 'dept',
   weekStart: '2026-03-02',
   ganttStart: null,  // null = auto-detect from WO dates
+  ganttExpanded: new Set(), // WO numbers whose ops are expanded
   workOrders: [],
   employees: [],
   assignments: [],
@@ -3293,7 +3294,8 @@ function renderGanttView(html, dates) {
     <button class="gantt-zoom-btn ${state.ganttZoom==='month'?'active':''}"   onclick="state.ganttZoom='month';render()">Month</button>
     <button class="gantt-zoom-btn ${state.ganttZoom==='quarter'?'active':''}" onclick="state.ganttZoom='quarter';render()">Quarter</button>
     <div style="width:1px;height:18px;background:var(--border);margin:0 4px"></div>
-    <button class="gantt-zoom-btn ${state.ganttShowOps?'active':''}" onclick="state.ganttShowOps=!state.ganttShowOps;render()">${state.ganttShowOps?'▼ Hide Ops':'▶ Show Ops'}</button>
+    <button class="gantt-zoom-btn" onclick="ganttExpandAll()" title="Expand all WOs to show operations">⊞ Expand All</button>
+    <button class="gantt-zoom-btn" onclick="ganttCollapseAll()" title="Collapse all WOs">⊟ Collapse All</button>
     <button class="gantt-zoom-btn ${state.ganttGroupBy==='dept'?'active':''}" onclick="state.ganttGroupBy='dept';render()">By Dept</button>
     <button class="gantt-zoom-btn ${state.ganttGroupBy==='priority'?'active':''}" onclick="state.ganttGroupBy='priority';render()">By Priority</button>
     <div class="gantt-legend">
@@ -3449,7 +3451,7 @@ function renderGanttView(html, dates) {
       // ── WO Row ──
       html += `<div style="display:flex;height:${WO_H}px;position:relative"
         ondragover="ganttWORowOver(event,'${wo.woNumber}')"
-        ondrop="_ganttResizeWO==='${wo.woNumber}'?ganttDropResize(event,'${wo.woNumber}'):ganttDropWO(event,'${wo.woNumber}')">`;
+        ondrop="(_ganttResizeWO&&(_ganttResizeWO==='start:${wo.woNumber}'||_ganttResizeWO==='end:${wo.woNumber}'))?ganttDropResize(event,'${wo.woNumber}'):ganttDropWO(event,'${wo.woNumber}')">`;
 
       html += mkLabel(WO_H, barColor,
         `<div style="min-width:0;flex:1">
@@ -3484,7 +3486,7 @@ function renderGanttView(html, dates) {
           ondragstart="ganttBarDragStart(event,'${wo.woNumber}',${bStart*cellW})"
           ondragend="ganttBarDragEnd(event)"
           ondragover="event.stopPropagation();ganttWORowOver(event,'${wo.woNumber}')"
-          ondrop="event.stopPropagation();_ganttResizeWO?ganttDropResize(event,'${wo.woNumber}'):ganttDropWO(event,'${wo.woNumber}')"
+          ondrop="event.stopPropagation();(_ganttResizeWO&&(_ganttResizeWO==='start:${wo.woNumber}'||_ganttResizeWO==='end:${wo.woNumber}'))?ganttDropResize(event,'${wo.woNumber}'):ganttDropWO(event,'${wo.woNumber}')"
           onclick="event.stopPropagation()"
           title="${wo.woNumber}: ${wo.description}&#10;${ws?fmtDate(ws)+' → '+fmtDate(we):'No dates set'}&#10;${pct}% complete&#10;↔ Drag bar to move · ◁ left handle to change start · ▷ right handle to change end"
           style="position:absolute;top:50%;transform:translateY(-50%);
@@ -3522,8 +3524,8 @@ function renderGanttView(html, dates) {
       }
       html += `</div>`; // end WO row
 
-      // ── Op Rows ──
-      if (state.ganttShowOps) {
+      // ── Op Rows ── (only if this WO is expanded)
+      if (state.ganttExpanded.has(wo.woNumber)) {
         wo.operations.forEach(op => {
           const empA  = state.assignments.filter(a=>a.woNumber===wo.woNumber&&a.opSeq===op.opSeq&&!isPoolAssignment(a));
           const poolA = state.assignments.filter(a=>a.woNumber===wo.woNumber&&a.opSeq===op.opSeq&&isPoolAssignment(a));
@@ -3718,7 +3720,9 @@ function ganttBarDragEnd(e) {
 }
 
 function ganttWORowOver(e, woNumber) {
-  if (_ganttDragWO === woNumber || _ganttResizeWO === woNumber) {
+  const isMove   = _ganttDragWO === woNumber;
+  const isResize = _ganttResizeWO && (_ganttResizeWO === 'start:'+woNumber || _ganttResizeWO === 'end:'+woNumber);
+  if (isMove || isResize) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     _ganttEdgeCheck(e.clientX);
@@ -3889,6 +3893,39 @@ function ganttOpDropEmpty(e, woNumber, opSeq, toDate) {
   _ganttDragOp = null;
   render();
 }
+
+function ganttToggleWO(woNumber) {
+  if (state.ganttExpanded.has(woNumber)) {
+    state.ganttExpanded.delete(woNumber);
+  } else {
+    state.ganttExpanded.add(woNumber);
+  }
+  // Re-render without resetting scroll position
+  const scroll = document.getElementById('gantt-scroll');
+  const savedX = scroll ? scroll.scrollLeft : 0;
+  const savedY = scroll ? scroll.scrollTop  : 0;
+  render();
+  requestAnimationFrame(() => {
+    const s = document.getElementById('gantt-scroll');
+    if (s) { s.scrollLeft = savedX; s.scrollTop = savedY; }
+  });
+}
+
+function ganttExpandAll() {
+  state.workOrders.forEach(wo => state.ganttExpanded.add(wo.woNumber));
+  const scroll = document.getElementById('gantt-scroll');
+  const sx = scroll ? scroll.scrollLeft : 0, sy = scroll ? scroll.scrollTop : 0;
+  render();
+  requestAnimationFrame(() => { const s = document.getElementById('gantt-scroll'); if(s){s.scrollLeft=sx;s.scrollTop=sy;} });
+}
+function ganttCollapseAll() {
+  state.ganttExpanded.clear();
+  const scroll = document.getElementById('gantt-scroll');
+  const sx = scroll ? scroll.scrollLeft : 0, sy = scroll ? scroll.scrollTop : 0;
+  render();
+  requestAnimationFrame(() => { const s = document.getElementById('gantt-scroll'); if(s){s.scrollLeft=sx;s.scrollTop=sy;} });
+}
+
 
 // ─── HEAT MAP RENDER ───
 function renderHeatMap(html, dates) {
