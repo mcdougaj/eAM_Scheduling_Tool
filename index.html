@@ -4381,11 +4381,9 @@ function ganttPanelRefresh() {
     aDiv.innerHTML = `<div style="font-size:10px;color:var(--text-muted);font-style:italic;padding:4px 0">None yet</div>`;
   } else {
     aDiv.innerHTML = allA.map(a => {
+      const isPool = isPoolAssignment(a);
       const dayLoad = !isPool && getEmpLoad ? getEmpLoad(a.employeeName, a.date) : a.hours;
       const dayAvail = !isPool && getEmpAvailHours ? getEmpAvailHours(a.employeeName, a.date) : 0;
-      const dayPct = dayAvail > 0 ? Math.min(100, dayLoad / dayAvail * 100) : 0;
-      const dayColor = dayPct > 100 ? '#DC3545' : dayPct > 85 ? '#F0AD4E' : '#28A745';
-      const isPool = isPoolAssignment(a);
       const displayName = getDisplayName(a);
       const ini = isPool ? '◉' : a.employeeName.split(' ').map(w => w[0] || '').join('').substring(0,2).toUpperCase();
       const avatarBg = isPool ? '#17A2B8' : cc.badge;
