@@ -3204,6 +3204,7 @@ function showAvailModal(empName) {
 function getGanttDates() {
   const weekDates = getWeekDates();
   if (state.ganttZoom === 'week') return weekDates;
+  // 4-week: 2 weeks back + current + 1 week forward
   const base = new Date(state.weekStart + 'T00:00:00');
   const start = new Date(base);
   start.setDate(start.getDate() - 7);
@@ -3227,7 +3228,8 @@ function getPriorityColor(p) {
 function renderGanttView(html, dates) {
   const today = new Date().toISOString().split('T')[0];
   const ganttDates = getGanttDates();
-  const cellW = state.ganttZoom === 'week' ? 110 : 52;
+  const cellW = state.ganttZoom === 'week' ? 120 : 54;
+  const labelW = 290;
 
   let wos = state.workOrders.filter(wo => {
     if (state.filterDept !== 'All' && wo.department !== state.filterDept) return false;
@@ -3242,6 +3244,7 @@ function renderGanttView(html, dates) {
     return 0;
   });
 
+  // ── Controls bar ──
   html += `<div class="gantt-controls">
     <span style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px">Zoom:</span>
     <button class="gantt-zoom-btn ${state.ganttZoom==='week'?'active':''}" onclick="state.ganttZoom='week';render()">Week</button>
@@ -3254,40 +3257,114 @@ function renderGanttView(html, dates) {
       <div class="gantt-legend-item"><div class="gantt-legend-swatch" style="background:#F0AD4E"></div>High</div>
       <div class="gantt-legend-item"><div class="gantt-legend-swatch" style="background:#E8712A"></div>Urgent</div>
       <div class="gantt-legend-item"><div class="gantt-legend-swatch" style="background:#DC3545"></div>Emergency</div>
-      <div class="gantt-legend-item"><div class="gantt-legend-swatch" style="background:#17A2B8;border-top:2px solid #0d6efd"></div>PM</div>
+      <div class="gantt-legend-item"><div class="gantt-legend-swatch" style="background:#17A2B8"></div>PM</div>
     </div>
     <div style="flex:1"></div>
-    <span style="font-size:10px;color:var(--text-secondary)">Drag bars to reschedule · Click to expand/collapse ops</span>
+    <span style="font-size:10px;color:var(--text-muted)">Drag WO bars to reschedule</span>
   </div>`;
 
-  // ── Build the header row ──
-  const labelColW = 300;
-  html += `<div class="gantt-wrap">
-  <table class="gantt-table" style="table-layout:fixed">
-  <colgroup>
-    <col style="width:${labelColW}px;min-width:${labelColW}px">`;
-  ganttDates.forEach(() => { html += `<col style="width:${cellW}px;min-width:${cellW}px">`; });
-  html += `</colgroup>
-  <thead><tr>
-    <th class="gantt-label-col" style="width:${labelColW}px">Work Order / Operation</th>`;
-  ganttDates.forEach(d => {
-    const dow = ['Su','Mo','Tu','We','Th','Fr','Sa'][new Date(d+'T00:00:00').getDay()];
-    html += `<th class="gantt-day-col" style="width:${cellW}px;${d===today?'color:var(--accent)':''}">${dow}<br><span style="font-size:8px;font-weight:400">${fmtDate(d)}</span></th>`;
-  });
-  html += `</tr></thead><tbody>`;
+  // ── Two-panel layout: sticky label + scrollable grid ──
+  // We use a CSS grid trick: left panel sticky, right panel scrolls horizontally
+  const totalGridW = ganttDates.length * cellW;
 
+  html += `<div style="display:flex;flex:1;overflow:hidden;min-height:0">
+    <!-- LEFT: sticky label panel -->
+    <div style="width:${labelW}px;min-width:${labelW}px;flex-shrink:0;overflow-y:auto;overflow-x:hidden;background:var(--bg-surface);border-right:2px solid var(--border);z-index:10" id="gantt-labels" onscroll="ganttLabelScroll(this)">
+      <!-- Header spacer -->
+      <div style="height:38px;background:var(--bg-card);border-bottom:2px solid var(--accent);display:flex;align-items:center;padding:0 10px;font-size:11px;font-weight:700;color:var(--text-secondary)">Work Order / Operation</div>`;
+
+  // ── Build label rows first (will sync scroll with right panel) ──
   const groups = state.ganttGroupBy === 'dept'
     ? DEPARTMENTS.map(d => ({ label: d, color: (DEPT_COLORS[d]||{}).badge||'#888', wos: wos.filter(w => w.department === d) })).filter(g => g.wos.length)
     : [1,2,3,4,5].map(p => ({ label: `P${p} — ${{1:'Emergency',2:'Urgent',3:'High',4:'Medium',5:'Low'}[p]}`, color: getPriorityColor(p), wos: wos.filter(w => w.priority === p) })).filter(g => g.wos.length);
 
+  // Collect row heights info for synchronization
+  // Both panels are generated in parallel and synced via JS scroll listener
+
   groups.forEach(group => {
-    // ── Group header row ──
-    html += `<tr class="gantt-dept-header">
-      <td colspan="${ganttDates.length+1}" style="border-left:4px solid ${group.color}">
-        <span style="color:${group.color};font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase">${group.label}</span>
-        <span style="font-size:10px;color:var(--text-secondary);margin-left:8px">${group.wos.length} WO${group.wos.length!==1?'s':''}</span>
-      </td>
-    </tr>`;
+    // Group header
+    html += `<div style="background:var(--bg-card);padding:5px 10px;border-bottom:1px solid var(--border);border-left:4px solid ${group.color};height:28px;display:flex;align-items:center;box-sizing:border-box">
+      <span style="color:${group.color};font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px">${group.label}</span>
+      <span style="font-size:9px;color:var(--text-secondary);margin-left:6px">${group.wos.length} WO${group.wos.length!==1?'s':''}</span>
+    </div>`;
+
+    group.wos.forEach(wo => {
+      const pColor = getPriorityColor(wo.priority);
+      const barColor = wo.isPM ? '#17A2B8' : pColor;
+      const ws = wo.scheduledStart ? wo.scheduledStart.slice(0,10) : '';
+      const we = wo.scheduledEnd ? wo.scheduledEnd.slice(0,10) : '';
+
+      // WO label row
+      html += `<div style="background:var(--bg-surface);padding:5px 10px;border-bottom:1px solid var(--border);border-left:3px solid ${barColor};height:46px;box-sizing:border-box;display:flex;align-items:center">
+        <div style="min-width:0;flex:1">
+          <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
+            <span style="font-weight:700;color:var(--accent);font-size:11px">${wo.woNumber}</span>
+            ${wo.isPM?`<span style="font-size:7px;background:#17A2B822;color:#17A2B8;border:1px solid #17A2B844;padding:1px 3px;border-radius:2px">PM</span>`:''}
+            <span style="font-size:7px;background:${pColor}22;color:${pColor};border:1px solid ${pColor}44;padding:1px 3px;border-radius:2px">P${wo.priority}</span>
+          </div>
+          <div style="font-size:10px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:${labelW-24}px" title="${wo.description.replace(/"/g,'')}">${wo.description}</div>
+          <div style="font-size:9px;color:var(--text-secondary)">${wo.department}${ws?' · '+fmtDate(ws)+'–'+fmtDate(we):''}</div>
+        </div>
+      </div>`;
+
+      // Op label rows
+      if (state.ganttShowOps) {
+        wo.operations.forEach(op => {
+          const cc = gc(op.craft);
+          const isFullySched = isFullyScheduled(wo.woNumber, op.opSeq);
+          const empAssigns = state.assignments.filter(a => a.woNumber === wo.woNumber && a.opSeq === op.opSeq && !isPoolAssignment(a));
+          const poolAssigns = state.assignments.filter(a => a.woNumber === wo.woNumber && a.opSeq === op.opSeq && isPoolAssignment(a));
+          const isPartial = empAssigns.length > 0 && !isFullySched;
+          const statusColor = isFullySched ? '#28A745' : isPartial ? '#F0AD4E' : poolAssigns.length ? '#17A2B8' : '#6C757D';
+          const statusLabel = isFullySched ? '✓' : isPartial ? '~' : poolAssigns.length ? 'pool' : 'open';
+
+          html += `<div style="background:var(--bg-base);padding:3px 8px 3px 18px;border-bottom:1px solid var(--border);border-left:2px solid ${cc.badge}55;height:28px;box-sizing:border-box;display:flex;align-items:center;gap:4px">
+            <span style="color:var(--text-muted);font-size:9px;white-space:nowrap">Op${op.opSeq}</span>
+            <span class="tag" style="background:${cc.badge};font-size:7px;padding:1px 4px">${op.craft}</span>
+            <span style="font-size:9px;color:var(--text-secondary);flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${op.description}">${op.description}</span>
+            <span style="font-size:8px;color:var(--text-muted);white-space:nowrap">${op.estHours}h</span>
+            <span style="font-size:7px;padding:1px 3px;border-radius:2px;background:${statusColor}22;color:${statusColor};border:1px solid ${statusColor}33">${statusLabel}</span>
+          </div>`;
+        });
+        // Spacer after WO ops
+        html += `<div style="height:4px;background:var(--bg-base);border-bottom:1px solid var(--border)"></div>`;
+      }
+    });
+  });
+
+  if (wos.length === 0) {
+    html += `<div style="padding:40px;text-align:center;color:var(--text-muted)">No work orders match current filters</div>`;
+  }
+
+  html += `</div><!-- end label panel -->
+
+    <!-- RIGHT: scrollable grid panel -->
+    <div style="flex:1;overflow:auto;min-width:0" id="gantt-grid" onscroll="ganttSyncScroll(this)">
+      <div style="min-width:${totalGridW}px">
+        <!-- Date header row -->
+        <div style="display:flex;height:38px;background:var(--bg-card);border-bottom:2px solid var(--accent);position:sticky;top:0;z-index:8">`;
+
+  ganttDates.forEach(d => {
+    const dow = ['Su','Mo','Tu','We','Th','Fr','Sa'][new Date(d+'T00:00:00').getDay()];
+    const isWeekend = [0,6].includes(new Date(d+'T00:00:00').getDay());
+    html += `<div style="width:${cellW}px;min-width:${cellW}px;text-align:center;padding:4px 2px;font-size:10px;font-weight:700;
+      border-right:1px solid var(--border);box-sizing:border-box;
+      color:${d===today?'var(--accent)':isWeekend?'var(--text-muted)':'var(--text-secondary)'};
+      background:${d===today?'var(--accent-glow)':'transparent'}">
+      <div>${dow}</div>
+      <div style="font-size:9px;font-weight:400">${fmtDate(d)}</div>
+    </div>`;
+  });
+  html += `</div><!-- end date header -->`;
+
+  // ── Grid rows (mirror label panel rows exactly) ──
+  groups.forEach(group => {
+    // Group header spacer row
+    html += `<div style="display:flex;height:28px;background:var(--bg-card);border-bottom:1px solid var(--border)">`;
+    ganttDates.forEach(d => {
+      html += `<div style="width:${cellW}px;min-width:${cellW}px;border-right:1px solid var(--border);box-sizing:border-box"></div>`;
+    });
+    html += `</div>`;
 
     group.wos.forEach(wo => {
       const pColor = getPriorityColor(wo.priority);
@@ -3296,169 +3373,234 @@ function renderGanttView(html, dates) {
       const we = wo.scheduledEnd ? wo.scheduledEnd.slice(0,10) : '';
       const allAssigned = state.assignments.filter(a => a.woNumber === wo.woNumber && !isPoolAssignment(a));
       const completePct = allAssigned.length > 0
-        ? Math.round((allAssigned.filter(a=>a.status==='Complete').length / allAssigned.length)*100) : 0;
+        ? Math.round((allAssigned.filter(a=>a.status==='Complete').length/allAssigned.length)*100) : 0;
 
-      // Which cells does the WO bar cover?
       const barCells = [];
-      if (ws && we) {
-        ganttDates.forEach((d, i) => { if (d >= ws && d <= we) barCells.push(i); });
-      }
-      const barStart = barCells.length ? barCells[0] : -1;
+      if (ws && we) ganttDates.forEach((d,i) => { if (d >= ws && d <= we) barCells.push(i); });
+      const barStartIdx = barCells.length ? barCells[0] : -1;
       const barSpan = barCells.length;
 
-      // ── WO row ──
-      html += `<tr class="gantt-wo-row">
-        <td class="gantt-label" style="border-left:3px solid ${barColor}">
-          <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
-            <div style="flex:1;min-width:0">
-              <div style="display:flex;align-items:center;gap:5px">
-                <span style="font-weight:700;color:var(--accent);font-size:11px;white-space:nowrap">${wo.woNumber}</span>
-                ${wo.isPM?`<span style="font-size:8px;background:#17A2B822;color:#17A2B8;border:1px solid #17A2B844;padding:1px 4px;border-radius:2px">PM</span>`:''}
-                <span style="font-size:9px;background:${pColor}22;color:${pColor};border:1px solid ${pColor}44;padding:1px 4px;border-radius:2px">P${wo.priority}</span>
-              </div>
-              <div style="font-size:11px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${wo.description.replace(/"/g,'&quot;')}">${wo.description}</div>
-              <div style="font-size:9px;color:var(--text-secondary);margin-top:1px">${wo.department} · ${wo.supervisor}${ws?` · ${fmtDate(ws)}–${fmtDate(we)}`:''}</div>
-            </div>
-          </div>
-        </td>`;
+      // WO grid row (height 46px to match label)
+      html += `<div style="display:flex;height:46px;border-bottom:1px solid var(--border);position:relative"
+        ondragover="ganttDragOver(event,'${wo.woNumber}')"
+        ondrop="ganttDrop(event,'${wo.woNumber}',ganttDateFromX(event))">`;
 
-      // Day cells for WO bar
       ganttDates.forEach((d, i) => {
         const isToday = d === today;
         const inBar = barCells.includes(i);
-        const isFirst = i === barStart;
-
-        html += `<td style="position:relative;height:46px;border-left:1px solid var(--border);border-bottom:1px solid var(--border);
-          background:${isToday?'var(--accent-glow)':inBar?barColor+'10':'var(--cell-bg)'};
-          cursor:pointer;width:${cellW}px"
-          ondragover="ganttDragOver(event,'${wo.woNumber}','${d}')"
-          ondrop="ganttDrop(event,'${wo.woNumber}','${d}')"
-          ondragenter="event.preventDefault()"
-          onclick="ganttCellClick('${wo.woNumber}','${d}')">`;
-
-        if (isFirst && barSpan > 0) {
-          html += `<div class="gantt-bar${wo.isPM?' pm-bar':''}${completePct===100?' complete-bar':''}"
-            style="position:absolute;top:50%;transform:translateY(-50%);
-            left:3px;height:24px;
-            width:calc(${barSpan * cellW}px - 6px);
-            background:${barColor};z-index:3"
-            draggable="true"
-            ondragstart="ganttBarDragStart(event,'${wo.woNumber}')"
-            ondragend="ganttBarDragEnd(event)"
-            title="${wo.woNumber}: ${wo.description}&#10;${fmtDate(ws)} – ${fmtDate(we)}&#10;P${wo.priority} ${PRIORITY[wo.priority]}&#10;${completePct}% complete"
-            onclick="event.stopPropagation()">
-            <div style="position:absolute;left:0;top:0;bottom:0;width:${completePct}%;background:rgba(255,255,255,0.25);border-radius:3px 0 0 3px;pointer-events:none"></div>
-            <span style="position:relative;z-index:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:block;padding:0 6px">
-              ${wo.woNumber}${barSpan >= 2 ? ' · ' + wo.description.substring(0,22)+(wo.description.length>22?'…':'') : ''}
-            </span>
-          </div>`;
-        }
-        html += `</td>`;
+        const isWeekend = [0,6].includes(new Date(d+'T00:00:00').getDay());
+        html += `<div style="width:${cellW}px;min-width:${cellW}px;height:100%;box-sizing:border-box;
+          border-right:1px solid var(--border);position:relative;flex-shrink:0;
+          background:${isToday?'var(--accent-glow)':isWeekend?'var(--bg-surface)':'var(--cell-bg)'}"></div>`;
       });
-      html += `</tr>`;
 
-      // ── Op rows (if toggled on) ──
+      // Bar rendered as absolute overlay on the row div
+      if (barStartIdx >= 0 && barSpan > 0) {
+        html += `<div class="gantt-bar${wo.isPM?' pm-bar':''}${completePct===100?' complete-bar':''}"
+          style="position:absolute;top:50%;transform:translateY(-50%);
+          left:${barStartIdx * cellW + 3}px;
+          width:${barSpan * cellW - 6}px;
+          height:26px;background:${barColor};z-index:3;pointer-events:auto"
+          draggable="true"
+          ondragstart="ganttBarDragStart(event,'${wo.woNumber}',${barStartIdx * cellW})"
+          ondragend="ganttBarDragEnd(event)"
+          ondragover="event.stopPropagation();ganttDragOver(event,'${wo.woNumber}')"
+          ondrop="event.stopPropagation();ganttDrop(event,'${wo.woNumber}',ganttDateFromX(event))"
+          title="${wo.woNumber}: ${wo.description}&#10;${fmtDate(ws)} – ${fmtDate(we)}&#10;P${wo.priority} ${PRIORITY[wo.priority]}&#10;${completePct}% complete"
+          onclick="event.stopPropagation()">
+          <div style="position:absolute;left:0;top:0;bottom:0;width:${completePct}%;background:rgba(255,255,255,0.2);border-radius:3px 0 0 3px;pointer-events:none"></div>
+          <span style="position:relative;z-index:1;padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:100%;font-size:9px;font-weight:700">
+            ${wo.woNumber}${barSpan >= 2 ? ' · ' + wo.description.substring(0,24)+(wo.description.length>24?'…':'') : ''}
+          </span>
+        </div>`;
+      }
+      html += `</div><!-- end WO row -->`;
+
+      // Op grid rows
       if (state.ganttShowOps) {
         wo.operations.forEach(op => {
           const opAssigns = state.assignments.filter(a => a.woNumber === wo.woNumber && a.opSeq === op.opSeq);
           const empAssigns = opAssigns.filter(a => !isPoolAssignment(a));
           const poolAssigns = opAssigns.filter(a => isPoolAssignment(a));
           const cc = gc(op.craft);
-          const isFullySched = isFullyScheduled(wo.woNumber, op.opSeq);
-          const isPartial = empAssigns.length > 0 && !isFullySched;
-          const statusColor = isFullySched ? '#28A745' : isPartial ? '#F0AD4E' : poolAssigns.length ? '#17A2B8' : '#6C757D';
-          const statusLabel = isFullySched ? '✓ done' : isPartial ? 'partial' : poolAssigns.length ? 'pool' : 'open';
 
-          // Op label cell
-          html += `<tr style="background:var(--bg-surface)">
-            <td style="padding:3px 8px 3px 20px;border-bottom:1px solid var(--border);border-left:1px solid ${cc.badge}40;background:var(--bg-surface)">
-              <div style="display:flex;align-items:center;gap:5px">
-                <span style="color:var(--text-muted);font-size:9px;flex-shrink:0">↳ Op${op.opSeq}</span>
-                <span class="tag" style="background:${cc.badge};font-size:8px;flex-shrink:0">${op.craft}</span>
-                <span style="font-size:10px;color:var(--text-secondary);flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="${op.description}">${op.description}</span>
-                <span style="font-size:9px;color:var(--text-muted);white-space:nowrap;flex-shrink:0">${op.estHours}h</span>
-                <span style="font-size:8px;padding:1px 4px;border-radius:2px;background:${statusColor}22;color:${statusColor};border:1px solid ${statusColor}44;white-space:nowrap;flex-shrink:0">${statusLabel}</span>
-              </div>
-            </td>`;
+          // Op bar range: use assigned dates span, fallback to WO window
+          const assignedDates = opAssigns.map(a => a.date).sort();
+          const opStart = assignedDates.length ? assignedDates[0] : ws;
+          const opEnd = assignedDates.length ? assignedDates[assignedDates.length-1] : we;
 
-          // Day cells for op assignments
-          ganttDates.forEach(d => {
-            const dayEmp = empAssigns.filter(a => a.date === d);
-            const dayPool = poolAssigns.filter(a => a.date === d);
+          html += `<div style="display:flex;height:28px;border-bottom:1px solid var(--border);position:relative;background:var(--bg-base)"
+            ondragover="ganttDragOver(event,'${wo.woNumber}')"
+            ondrop="ganttDrop(event,'${wo.woNumber}',ganttDateFromX(event))">`;
+
+
+          ganttDates.forEach((d, i) => {
             const inWoWindow = ws && we && d >= ws && d <= we;
-
-            html += `<td style="position:relative;height:28px;border-left:1px solid var(--border);border-bottom:1px solid var(--border);background:${inWoWindow?cc.badge+'08':'var(--cell-bg)'}">`;
-
-            if (dayEmp.length) {
-              const hrs = dayEmp.reduce((s,a)=>s+a.hours,0);
-              const done = dayEmp.every(a=>a.status==='Complete');
-              const names = dayEmp.map(a => a.employeeName.split(' ').map(w=>w[0]).join('')).join('+');
-              html += `<div style="position:absolute;inset:2px;background:${cc.badge};border-radius:2px;
-                display:flex;align-items:center;padding:0 4px;opacity:${done?0.5:1};z-index:2;overflow:hidden"
-                title="${dayEmp.map(a=>a.employeeName+' ('+a.hours+'h)').join(', ')}">
-                <span style="color:#FFF;font-size:8px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${names} · ${hrs}h</span>
-              </div>`;
-            } else if (dayPool.length) {
-              const hrs = dayPool.reduce((s,a)=>s+a.hours,0);
-              html += `<div style="position:absolute;inset:2px;background:#17A2B8;border-radius:2px;opacity:0.5;
-                display:flex;align-items:center;padding:0 4px;z-index:2"
-                title="Pool: ${hrs}h allocated">
-                <span style="color:#FFF;font-size:8px;font-weight:700">${hrs}h pool</span>
-              </div>`;
-            } else if (inWoWindow) {
-              // Show faint "unscheduled" indicator
-              html += `<div style="position:absolute;inset:4px;border:1px dashed ${cc.badge}55;border-radius:2px;opacity:0.5"></div>`;
-            }
-            html += `</td>`;
+            const isWeekend = [0,6].includes(new Date(d+'T00:00:00').getDay());
+            html += `<div style="width:${cellW}px;min-width:${cellW}px;height:100%;box-sizing:border-box;
+              border-right:1px solid var(--border);flex-shrink:0;
+              background:${inWoWindow ? cc.badge+'08' : isWeekend ? 'var(--bg-surface)' : 'transparent'}"></div>`;
           });
-          html += `</tr>`;
+
+          // Assignment chips as absolute overlays
+          // Group by date and render one chip per day
+          const dayMap = {};
+          empAssigns.forEach(a => {
+            if (!dayMap[a.date]) dayMap[a.date] = [];
+            dayMap[a.date].push(a);
+          });
+          const poolDayMap = {};
+          poolAssigns.forEach(a => {
+            if (!poolDayMap[a.date]) poolDayMap[a.date] = [];
+            poolDayMap[a.date].push(a);
+          });
+
+          // Find contiguous assignment ranges for spanning bars
+          // Sort assigned dates
+          const sortedEmpDates = [...new Set(empAssigns.map(a=>a.date))].sort();
+          if (sortedEmpDates.length) {
+            // Find contiguous ranges
+            const ranges = [];
+            let rangeStart = sortedEmpDates[0], rangeEnd = sortedEmpDates[0];
+            for (let di = 1; di < sortedEmpDates.length; di++) {
+              const prev = new Date(rangeEnd + 'T00:00:00');
+              const curr = new Date(sortedEmpDates[di] + 'T00:00:00');
+              const diff = Math.round((curr - prev) / 86400000);
+              if (diff <= 3) { rangeEnd = sortedEmpDates[di]; } // allow weekend gaps
+              else { ranges.push({start:rangeStart,end:rangeEnd}); rangeStart=sortedEmpDates[di]; rangeEnd=sortedEmpDates[di]; }
+            }
+            ranges.push({start:rangeStart,end:rangeEnd});
+
+            ranges.forEach(range => {
+              const startIdx = ganttDates.indexOf(range.start);
+              const endIdx = ganttDates.indexOf(range.end);
+              if (startIdx < 0) return;
+              const span = (endIdx >= 0 ? endIdx : ganttDates.length-1) - startIdx + 1;
+              const rangeAssigns = empAssigns.filter(a => a.date >= range.start && a.date <= range.end);
+              const totalHrs = rangeAssigns.reduce((s,a)=>s+a.hours,0);
+              const allDone = rangeAssigns.every(a=>a.status==='Complete');
+              const names = [...new Set(rangeAssigns.map(a=>a.employeeName.split(' ').map(w=>w[0]).join('')))].join('+');
+              const isDone = allDone;
+
+              html += `<div style="position:absolute;top:3px;bottom:3px;
+                left:${startIdx*cellW+2}px;width:${span*cellW-4}px;
+                background:${cc.badge};border-radius:2px;z-index:3;
+                display:flex;align-items:center;padding:0 4px;overflow:hidden;
+                opacity:${isDone?0.5:0.9};pointer-events:none"
+                title="${rangeAssigns.map(a=>a.employeeName+' '+a.date+' ('+a.hours+'h)').join(', ')}">
+                <span style="color:#FFF;font-size:8px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${names} · ${totalHrs}h</span>
+              </div>`;
+            });
+          } else if (Object.keys(poolDayMap).length) {
+            // Pool assignments
+            const poolDates = Object.keys(poolDayMap).sort();
+            const startIdx = ganttDates.indexOf(poolDates[0]);
+            const endIdx = ganttDates.indexOf(poolDates[poolDates.length-1]);
+            if (startIdx >= 0) {
+              const span = (endIdx >= 0 ? endIdx : ganttDates.length-1) - startIdx + 1;
+              const totalHrs = poolAssigns.reduce((s,a)=>s+a.hours,0);
+              html += `<div style="position:absolute;top:3px;bottom:3px;
+                left:${startIdx*cellW+2}px;width:${span*cellW-4}px;
+                background:#17A2B8;border-radius:2px;z-index:3;
+                display:flex;align-items:center;padding:0 4px;overflow:hidden;
+                opacity:0.55;pointer-events:none">
+                <span style="color:#FFF;font-size:8px;font-weight:700">${totalHrs}h pool</span>
+              </div>`;
+            }
+          } else if (opStart && opEnd) {
+            // Unscheduled — show dashed outline in window
+            const startIdx = ganttDates.findIndex(d => d >= opStart);
+            const endIdx = ganttDates.findLastIndex ? ganttDates.findLastIndex(d => d <= opEnd) : [...ganttDates].reverse().findIndex(d => d <= opEnd);
+            const eIdx = endIdx >= 0 ? (ganttDates.findLastIndex ? endIdx : ganttDates.length-1-endIdx) : -1;
+            if (startIdx >= 0 && eIdx >= startIdx) {
+              const span = eIdx - startIdx + 1;
+              html += `<div style="position:absolute;top:4px;bottom:4px;
+                left:${startIdx*cellW+2}px;width:${span*cellW-4}px;
+                border:1px dashed ${cc.badge}66;border-radius:2px;z-index:2;pointer-events:none"></div>`;
+            }
+          }
+
+          html += `</div><!-- end op row -->`;
         });
 
-        // Spacer row between WOs
-        html += `<tr style="height:4px;background:var(--bg-base)"><td colspan="${ganttDates.length+1}"></td></tr>`;
+        // Spacer row
+        html += `<div style="height:4px;background:var(--bg-base);border-bottom:1px solid var(--border)"></div>`;
       }
     });
   });
 
-  if (wos.length === 0) {
-    html += `<tr><td colspan="${ganttDates.length+1}" style="text-align:center;padding:40px;color:var(--text-muted)">
-      No work orders match current filters
-    </td></tr>`;
-  }
-
-  html += `</tbody></table></div>`;
+  html += `      </div><!-- end min-width wrapper -->
+    </div><!-- end gantt-grid -->
+  </div><!-- end two-panel -->`;
   return html;
 }
 
 // ─── GANTT DRAG-TO-RESCHEDULE ───
 let _ganttDragWO = null;
-let _ganttDragStartDate = null;
+let _ganttDragBarStartPx = 0;  // px offset of bar start from grid left edge
 
-function ganttBarDragStart(e, woNumber) {
+// Called when user starts dragging a WO bar
+function ganttBarDragStart(e, woNumber, barLeftPx) {
   _ganttDragWO = woNumber;
-  const wo = state.workOrders.find(w => w.woNumber === woNumber);
-  _ganttDragStartDate = wo ? wo.scheduledStart : null;
+  _ganttDragBarStartPx = barLeftPx || 0;
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', woNumber);
-  e.currentTarget.classList.add('dragging-bar');
+  // Store drag offset within the bar so drop lands relative to where user grabbed
+  const rect = e.currentTarget.getBoundingClientRect();
+  _ganttDragOffsetPx = e.clientX - rect.left;
 }
+
+let _ganttDragOffsetPx = 0;
 
 function ganttBarDragEnd(e) {
-  if (e.currentTarget) e.currentTarget.classList.remove('dragging-bar');
   _ganttDragWO = null;
-  _ganttDragStartDate = null;
+  const line = document.getElementById('gantt-drop-line');
+  if (line) line.style.display = 'none';
 }
 
-function ganttDragOver(e, woNumber, date) {
+// Allow drop on any WO row or op row in the grid
+function ganttDragOver(e, woNumber) {
   if (_ganttDragWO === woNumber) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+    // Show drop indicator line
+    const grid = document.getElementById('gantt-grid');
+    if (grid) {
+      const gridRect = grid.getBoundingClientRect();
+      const relX = (e.clientX - gridRect.left) + grid.scrollLeft - _ganttDragOffsetPx;
+      const ganttDates = getGanttDates();
+      const cellW = state.ganttZoom === 'week' ? 120 : 54;
+      const idx = Math.max(0, Math.min(ganttDates.length - 1, Math.floor(relX / cellW)));
+      let line = document.getElementById('gantt-drop-line');
+      if (!line) {
+        line = document.createElement('div');
+        line.id = 'gantt-drop-line';
+        line.style.cssText = 'position:absolute;top:0;bottom:0;width:2px;background:var(--accent);z-index:20;pointer-events:none;opacity:0.8';
+        grid.querySelector('div').appendChild(line);
+      }
+      line.style.left = (idx * cellW) + 'px';
+      line.style.display = 'block';
+    }
   }
+}
+
+// Convert drop event X position to a date string using the gantt grid layout
+function ganttDateFromX(e) {
+  const grid = document.getElementById('gantt-grid');
+  if (!grid) return null;
+  const gridRect = grid.getBoundingClientRect();
+  // Account for scroll offset and drag-within-bar offset
+  const relX = (e.clientX - gridRect.left) + grid.scrollLeft - _ganttDragOffsetPx;
+  const ganttDates = getGanttDates();
+  const cellW = state.ganttZoom === 'week' ? 120 : 54;
+  const idx = Math.max(0, Math.min(ganttDates.length - 1, Math.floor(relX / cellW)));
+  return ganttDates[idx] || null;
 }
 
 function ganttDrop(e, woNumber, targetDate) {
   e.preventDefault();
   if (_ganttDragWO !== woNumber) return;
+  if (!targetDate) return;
 
   const wo = state.workOrders.find(w => w.woNumber === woNumber);
   if (!wo || !wo.scheduledStart || !wo.scheduledEnd) return;
@@ -3466,14 +3608,12 @@ function ganttDrop(e, woNumber, targetDate) {
   const origStart = wo.scheduledStart.slice(0,10);
   const origEnd = wo.scheduledEnd.slice(0,10);
 
-  // Calculate day offset from original start to drop target
   const startMs = new Date(origStart + 'T00:00:00').getTime();
   const dropMs = new Date(targetDate + 'T00:00:00').getTime();
   const dayOffset = Math.round((dropMs - startMs) / 86400000);
 
   if (dayOffset === 0) return;
 
-  // Shift both start and end by offset
   const newStart = new Date(origStart + 'T00:00:00');
   newStart.setDate(newStart.getDate() + dayOffset);
   const newEnd = new Date(origEnd + 'T00:00:00');
@@ -3482,26 +3622,26 @@ function ganttDrop(e, woNumber, targetDate) {
   wo.scheduledStart = newStart.toISOString().split('T')[0];
   wo.scheduledEnd = newEnd.toISOString().split('T')[0];
 
-  // Also shift existing assignments if they're within the old window
+  // Shift all existing assignments by the same offset
   state.assignments.filter(a => a.woNumber === woNumber).forEach(a => {
     const aDate = new Date(a.date + 'T00:00:00');
     aDate.setDate(aDate.getDate() + dayOffset);
     a.date = aDate.toISOString().split('T')[0];
   });
 
+  _ganttDragWO = null;
   render();
 }
 
-function ganttCellClick(woNumber, date) {
-  if (_ganttDragWO) return; // ignore clicks during drag
-  // Click on empty cell sets WO start to that date (quick scheduling)
-  const wo = state.workOrders.find(w => w.woNumber === woNumber);
-  if (!wo) return;
-  if (!wo.scheduledStart) {
-    wo.scheduledStart = date;
-    wo.scheduledEnd = date;
-    render();
-  }
+// Sync vertical scroll between label panel and grid panel
+function ganttSyncScroll(gridEl) {
+  const labels = document.getElementById('gantt-labels');
+  if (labels) labels.scrollTop = gridEl.scrollTop;
+}
+
+function ganttLabelScroll(labelsEl) {
+  const grid = document.getElementById('gantt-grid');
+  if (grid) grid.scrollTop = labelsEl.scrollTop;
 }
 
 // ─── HEAT MAP RENDER ───
