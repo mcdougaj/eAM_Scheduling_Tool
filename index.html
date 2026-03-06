@@ -4277,9 +4277,9 @@ function ganttPanelRefresh() {
   document.getElementById('gap-progress').innerHTML = `
     <div style="display:flex;align-items:center;gap:8px">
       <div style="flex:1;height:6px;background:var(--cap-bar-bg);border-radius:3px;overflow:hidden">
-        <div style="height:100%;width:\${pct}%;background:\${pctColor};border-radius:3px;transition:width 0.3s"></div>
+        <div style="height:100%;width:${pct}%;background:${pctColor};border-radius:3px;transition:width 0.3s"></div>
       </div>
-      <span style="font-size:10px;font-weight:700;color:\${pctColor}">\${assignedH.toFixed(1)}/\${op.estHours}h</span>
+      <span style="font-size:10px;font-weight:700;color:${pctColor}">${assignedH.toFixed(1)}/${op.estHours}h</span>
     </div>`;
 
   // Current assignments
@@ -4294,18 +4294,18 @@ function ganttPanelRefresh() {
       const dayColor = dayPct > 100 ? '#DC3545' : dayPct > 85 ? '#F0AD4E' : '#28A745';
       const ini = a.employeeName.split(' ').map(w => w[0] || '').join('').substring(0,2).toUpperCase();
       return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg-base);border-radius:5px;margin-bottom:4px;border:1px solid var(--border)">
-        <span style="width:26px;height:26px;border-radius:50%;background:\${cc.badge};color:#FFF;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">\${ini}</span>
+        <span style="width:26px;height:26px;border-radius:50%;background:${cc.badge};color:#FFF;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ini}</span>
         <div style="flex:1;min-width:0">
-          <div style="font-size:10px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">\${a.employeeName}</div>
-          <div style="font-size:9px;color:var(--text-secondary)">\${fmtDate(a.date)} · \${a.hours}h</div>
+          <div style="font-size:10px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.employeeName}</div>
+          <div style="font-size:9px;color:var(--text-secondary)">${fmtDate(a.date)} · ${a.hours}h</div>
           <div style="display:flex;align-items:center;gap:4px;margin-top:2px">
             <div style="flex:1;height:3px;background:var(--cap-bar-bg);border-radius:2px;overflow:hidden">
-              <div style="height:100%;width:\${dayPct}%;background:\${dayColor}"></div>
+              <div style="height:100%;width:${dayPct}%;background:${dayColor}"></div>
             </div>
-            <span style="font-size:8px;color:\${dayColor}">\${dayLoad.toFixed(1)}/\${dayAvail}h</span>
+            <span style="font-size:8px;color:${dayColor}">${dayLoad.toFixed(1)}/${dayAvail}h</span>
           </div>
         </div>
-        <button onclick="ganttPanelRemove('\${a.id}')" style="background:none;border:none;color:#DC354566;cursor:pointer;font-size:14px;padding:2px 4px;line-height:1">×</button>
+        <button onclick="ganttPanelRemove('${a.id}')" style="background:none;border:none;color:#DC354566;cursor:pointer;font-size:14px;padding:2px 4px;line-height:1">×</button>
       </div>`;
     }).join('');
   }
@@ -4319,7 +4319,7 @@ function ganttPanelRefresh() {
       const wkLoad = getEmpWeekLoad(e.name);
       const wkAvail = getEmpWeekAvail(e.name);
       const pct2 = wkAvail > 0 ? Math.round(wkLoad/wkAvail*100) : 0;
-      return `<option value="\${e.name}">\${e.name} (\${pct2}% loaded)</option>`;
+      return `<option value="${e.name}">${e.name} (${pct2}% loaded)</option>`;
     }).join('');
 
   // Populate date dropdown (gantt date range, prefer WO window)
@@ -4327,7 +4327,7 @@ function ganttPanelRefresh() {
   const useDates = ganttDates.length > 0 ? ganttDates : dates;
   dateSel.innerHTML = useDates.map(d => {
     const ow = wo && ((wo.scheduledStart && d < wo.scheduledStart) || (wo.scheduledEnd && d > wo.scheduledEnd));
-    return `<option value="\${d}">\${fmtDate(d)}\${ow ? ' ⚠' : ''}</option>`;
+    return `<option value="${d}">${fmtDate(d)}${ow ? ' ⚠' : ''}</option>`;
   }).join('');
 
   // Default hours = remaining
@@ -4352,7 +4352,7 @@ function ganttPanelUpdateEmpLoad() {
   const avail = getEmpAvailHours ? getEmpAvailHours(empName, date) : 8;
   const pct = avail > 0 ? Math.round(load/avail*100) : 0;
   const color = pct > 100 ? '#DC3545' : pct > 85 ? '#F0AD4E' : '#28A745';
-  div.innerHTML = `<span style="color:\${color}">\${empName.split(' ')[0]}: \${load}h/\${avail}h this day (\${pct}%)</span>`;
+  div.innerHTML = `<span style="color:${color}">${empName.split(' ')[0]}: ${load}h/${avail}h this day (${pct}%)</span>`;
 }
 
 function ganttPanelAddAssign() {
@@ -4391,7 +4391,7 @@ function ganttPanelRenderPool(op, matchEmps) {
   const cc = typeof gc === 'function' ? gc(op.craft) : { badge: '#666' };
 
   if (matchEmps.length === 0) {
-    div.innerHTML = `<div style="font-size:10px;color:var(--text-muted);font-style:italic">No \${op.craft} employees in roster</div>`;
+    div.innerHTML = `<div style="font-size:10px;color:var(--text-muted);font-style:italic">No ${op.craft} employees in roster</div>`;
     return;
   }
 
@@ -4408,26 +4408,26 @@ function ganttPanelRenderPool(op, matchEmps) {
       const pct2 = avail > 0 ? Math.min(100, load/avail*100) : 0;
       const c2 = pct2 > 95 ? '#DC3545' : pct2 > 80 ? '#F0AD4E' : pct2 > 0 ? '#28A745' : 'var(--border)';
       const isOff = avail === 0;
-      return `<div title="\${fmtDate(d)}: \${load}/\${avail}h" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px">
-        <div style="width:100%;height:18px;background:var(--bg-base);border-radius:2px;overflow:hidden;border:1px solid var(--border);\${isOff?'opacity:0.3':''}">
-          <div style="width:100%;height:\${pct2}%;background:\${c2};position:relative;top:\${100-pct2}%"></div>
+      return `<div title="${fmtDate(d)}: ${load}/${avail}h" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px">
+        <div style="width:100%;height:18px;background:var(--bg-base);border-radius:2px;overflow:hidden;border:1px solid var(--border);${isOff?'opacity:0.3':''}">
+          <div style="width:100%;height:${pct2}%;background:${c2};position:relative;top:${100-pct2}%"></div>
         </div>
-        <div style="font-size:6px;color:var(--text-muted)">\${d.slice(5)}</div>
+        <div style="font-size:6px;color:var(--text-muted)">${d.slice(5)}</div>
       </div>`;
     }).join('');
 
     return `<div style="padding:8px 10px;background:var(--bg-base);border:1px solid var(--border);border-radius:6px;margin-bottom:6px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span style="width:24px;height:24px;border-radius:50%;background:\${cc.badge};color:#FFF;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">\${ini}</span>
+        <span style="width:24px;height:24px;border-radius:50%;background:${cc.badge};color:#FFF;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ini}</span>
         <div style="flex:1;min-width:0">
-          <div style="font-size:10px;font-weight:600;color:var(--text-primary)">\${emp.name}</div>
-          <div style="font-size:9px;color:var(--text-secondary)">\${emp.craft} · \${emp.department}</div>
+          <div style="font-size:10px;font-weight:600;color:var(--text-primary)">${emp.name}</div>
+          <div style="font-size:9px;color:var(--text-secondary)">${emp.craft} · ${emp.department}</div>
         </div>
-        <span style="font-size:10px;font-weight:700;color:\${wkColor}">\${wkPct.toFixed(0)}%</span>
+        <span style="font-size:10px;font-weight:700;color:${wkColor}">${wkPct.toFixed(0)}%</span>
       </div>
-      <div style="display:flex;gap:2px;height:22px">\${dayBars}</div>
+      <div style="display:flex;gap:2px;height:22px">${dayBars}</div>
       <div style="margin-top:4px;height:3px;background:var(--cap-bar-bg);border-radius:2px;overflow:hidden">
-        <div style="height:100%;width:\${wkPct}%;background:\${wkColor};border-radius:2px"></div>
+        <div style="height:100%;width:${wkPct}%;background:${wkColor};border-radius:2px"></div>
       </div>
     </div>`;
   }).join('');
