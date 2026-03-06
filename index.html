@@ -402,7 +402,7 @@
 
 <div id="app" style="display:flex;flex-direction:column;height:100vh;overflow:hidden"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script>
 // ─── APP STATE ───
 const state = {
@@ -2518,7 +2518,7 @@ function exportSchedule(openEmail) {
   const dates      = getWeekDates();
   const wb         = XLSX.utils.book_new();
 
-  // ── Scope ──────────────────────────────────────────────────────────────
+  // ── Scope ────────────────────────────────────────────────────────────
   const deptFilter  = state.filterDept || 'All';
   const deptLabel   = deptFilter === 'All' ? 'All_Departments' : deptFilter.replace(/\s+/g, '_');
   const exportWOs   = deptFilter === 'All' ? state.workOrders : state.workOrders.filter(w => w.department === deptFilter);
@@ -2526,103 +2526,258 @@ function exportSchedule(openEmail) {
   const exportEmps  = deptFilter === 'All' ? state.employees  : state.employees.filter(e => e.department === deptFilter);
   const exportAssigns = state.assignments.filter(a => exportWOSet.has(a.woNumber));
 
-  const version  = getExportVersion(state.weekStart, deptLabel);
-  const weekEnd  = dates.length ? dates[dates.length - 1] : state.weekStart;
-  const weekRange = fmtDate(state.weekStart) + ' – ' + fmtDate(weekEnd);
-  const filename = `${deptLabel}_Schedule_WK${state.weekStart}_v${version}.xlsx`;
+  const version   = getExportVersion(state.weekStart, deptLabel);
+  const weekEnd   = dates.length ? dates[dates.length - 1] : state.weekStart;
+  const weekRange = fmtDate(state.weekStart) + ' \u2013 ' + fmtDate(weekEnd);
+  const filename  = `${deptLabel}_Schedule_WK${state.weekStart}_v${version}.xlsx`;
 
-  // ── Palette helpers (applied via cell styles where SheetJS supports them) ──
-  // SheetJS free tier doesn't support rich cell styles, but we can inject
-  // named styles via !cols / !rows and use a header sentinel row approach.
-  // We'll use a "styled header" trick: write a hidden __STYLE__ first row 
-  // that the importer ignores, and rely on frozen rows + col widths for polish.
-  // For real colour we use a post-write approach via the xlsx-js-style shim
-  // if available — otherwise falls back gracefully.
+  // ── Style helpers ────────────────────────────────────────────────────
+  // Palette
+  const NAVY    = '0D1B2A';
+  const ORANGE  = 'E8712A';
+  const TEAL    = '0D9488';
+  const GREEN   = '22C55E';
+  const AMBER   = 'F59E0B';
+  const RED     = 'EF4444';
+  const WHITE   = 'FFFFFF';
+  const OFFWH   = 'F5F7FA';
+  const SLATE   = '64748B';
+  const SLATEL  = 'E2E8F0';
+  const DARK    = '1E293B';
+  const LGREY   = 'F1F5F9';
 
-  const HAS_STYLE = typeof XLSX.utils.sheet_add_aoa === 'function';
+  function cell(v, s) { return { v, s }; }
 
-  function mkWS(aoa, colWidths, freezeRow) {
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
+  function hdr(v, bg, fg, sz, merge, border) {
+    return cell(v, {
+      fill: { fgColor: { rgb: bg || NAVY } },
+      font: { bold: true, color: { rgb: fg || WHITE }, sz: sz || 11, name: 'Calibri' },
+      alignment: { horizontal: 'left', vertical: 'center', wrapText: false },
+      border: border || {}
+    });
+  }
+
+  function colHdr(v, bg, fg) {
+    return cell(v, {
+      fill: { fgColor: { rgb: bg || SLATE } },
+      font: { bold: true, color: { rgb: fg || WHITE }, sz: 10, name: 'Calibri' },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: {
+        bottom: { style: 'medium', color: { rgb: ORANGE } },
+        top:    { style: 'thin',   color: { rgb: SLATE  } },
+        left:   { style: 'thin',   color: { rgb: SLATE  } },
+        right:  { style: 'thin',   color: { rgb: SLATE  } },
+      }
+    });
+  }
+
+  function dataCell(v, bg, fg, align, bold, fmt) {
+    return cell(v, {
+      fill: { fgColor: { rgb: bg || WHITE } },
+      font: { color: { rgb: fg || DARK }, sz: 10, name: 'Calibri', bold: bold || false },
+      alignment: { horizontal: align || 'left', vertical: 'center' },
+      numFmt: fmt || '',
+      border: {
+        bottom: { style: 'thin', color: { rgb: SLATEL } },
+        left:   { style: 'thin', color: { rgb: SLATEL } },
+        right:  { style: 'thin', color: { rgb: SLATEL } },
+      }
+    });
+  }
+
+  function bigStat(v, bg, fg) {
+    return cell(v, {
+      fill: { fgColor: { rgb: bg || NAVY } },
+      font: { bold: true, color: { rgb: fg || ORANGE }, sz: 18, name: 'Calibri' },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    });
+  }
+
+  function bigLabel(v) {
+    return cell(v, {
+      fill: { fgColor: { rgb: NAVY } },
+      font: { color: { rgb: SLATEL }, sz: 8, name: 'Calibri' },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    });
+  }
+
+  function sectionHdr(v) {
+    return cell(v, {
+      fill: { fgColor: { rgb: ORANGE } },
+      font: { bold: true, color: { rgb: WHITE }, sz: 11, name: 'Calibri' },
+      alignment: { horizontal: 'left', vertical: 'center' },
+      border: { bottom: { style: 'medium', color: { rgb: NAVY } } }
+    });
+  }
+
+  function emptyNavy() {
+    return cell('', { fill: { fgColor: { rgb: NAVY } }, font: { sz: 10 } });
+  }
+
+  function empty(bg) {
+    return cell('', { fill: { fgColor: { rgb: bg || WHITE } }, font: { sz: 10 } });
+  }
+
+  function pctColor(pct) {
+    if (pct >= 90) return RED;
+    if (pct >= 75) return AMBER;
+    if (pct >= 0)  return GREEN;
+    return SLATE;
+  }
+
+  function statusColor(status) {
+    if (status === 'OVERDUE')          return RED;
+    if (status === 'At Risk')          return AMBER;
+    if (status === 'Fully Scheduled')  return GREEN;
+    if (status === 'Partial')          return TEAL;
+    return SLATE;
+  }
+
+  function applySheet(ws, aoa, colWidths, rowHeights, merges) {
+    XLSX.utils.sheet_add_aoa(ws, aoa.map(r => r.map(c => (c && typeof c === 'object' && 'v' in c) ? c.v : c)), { origin: 'A1' });
+    // Inject styles cell-by-cell
+    const ref = ws['!ref'];
+    aoa.forEach((row, ri) => {
+      row.forEach((cell, ci) => {
+        if (cell && typeof cell === 'object' && 's' in cell) {
+          const addr = XLSX.utils.encode_cell({ r: ri, c: ci });
+          if (!ws[addr]) ws[addr] = { v: cell.v };
+          ws[addr].s = cell.s;
+        }
+      });
+    });
     if (colWidths) ws['!cols'] = colWidths.map(w => ({ wch: w }));
-    if (freezeRow) ws['!freeze'] = { xSplit: 0, ySplit: freezeRow };
+    if (rowHeights) ws['!rows'] = rowHeights.map(h => h ? { hpt: h } : {});
+    if (merges) ws['!merges'] = merges;
     return ws;
   }
 
-  // ── KPI calculations (mirrors Summary view) ────────────────────────────
+  // ── KPI CALCULATIONS ─────────────────────────────────────────────────
   const allOpsFlat = exportWOs.flatMap(w => w.operations.map(o => ({ wo: w, op: o })));
   const totalWOs   = exportWOs.length;
   const pmWOs      = exportWOs.filter(w => w.isPM).length;
   const cmWOs      = totalWOs - pmWOs;
-
   const totalOps   = allOpsFlat.length;
   const pmOps      = allOpsFlat.filter(x => x.wo.isPM).length;
   const cmOps      = totalOps - pmOps;
 
-  // Scheduled = op has ≥1 assignment
   const scheduledOpSet = new Set(exportAssigns.map(a => a.woNumber + '|' + a.opSeq));
   const scheduledOps   = allOpsFlat.filter(x => scheduledOpSet.has(x.wo.woNumber + '|' + x.op.opSeq)).length;
   const unscheduledOps = totalOps - scheduledOps;
   const schedPct       = totalOps > 0 ? Math.round(scheduledOps / totalOps * 100) : 0;
-
-  const pmScheduled = allOpsFlat.filter(x => x.wo.isPM && scheduledOpSet.has(x.wo.woNumber + '|' + x.op.opSeq)).length;
-  const cmScheduled = scheduledOps - pmScheduled;
+  const pmScheduled    = allOpsFlat.filter(x => x.wo.isPM && scheduledOpSet.has(x.wo.woNumber + '|' + x.op.opSeq)).length;
+  const cmScheduled    = scheduledOps - pmScheduled;
 
   const totalEstHours  = allOpsFlat.reduce((s, x) => s + (x.op.estHours || 0), 0);
   const assignedHours  = exportAssigns.reduce((s, a) => s + (a.hours || 0), 0);
+  const totalAvailH    = exportEmps.reduce((s, e) => s + (e.hoursPerDay || 8) * dates.length, 0);
+  const utilPct        = totalAvailH > 0 ? Math.round(assignedHours / totalAvailH * 100) : 0;
 
-  // Capacity
-  const totalAvailH = exportEmps.reduce((s, e) => s + (e.hoursPerDay || 8) * dates.length, 0);
-  const utilPct     = totalAvailH > 0 ? Math.round(assignedHours / totalAvailH * 100) : 0;
-
-  // Compliance
   const now = new Date();
   let onTrack = 0, atRisk = 0, overdue = 0, complete = 0;
   exportWOs.forEach(wo => {
-    const woOps    = wo.operations.length;
-    const woSched  = wo.operations.filter(o => scheduledOpSet.has(wo.woNumber + '|' + o.opSeq)).length;
-    const endDate  = wo.scheduledEnd ? new Date(wo.scheduledEnd) : null;
-    if (woOps > 0 && woSched === woOps) { complete++; return; }
-    if (endDate && endDate < now) { overdue++; return; }
-    if (endDate && (endDate - now) < 3 * 86400000 && woSched < woOps) { atRisk++; return; }
+    const woOps   = wo.operations.length;
+    const woSched = wo.operations.filter(o => scheduledOpSet.has(wo.woNumber + '|' + o.opSeq)).length;
+    const endDate = wo.scheduledEnd ? new Date(wo.scheduledEnd) : null;
+    if (woOps > 0 && woSched === woOps)                                     { complete++; return; }
+    if (endDate && endDate < now)                                             { overdue++;  return; }
+    if (endDate && (endDate - now) < 3 * 86400000 && woSched < woOps)        { atRisk++;   return; }
     onTrack++;
   });
 
-  // ── SHEET 1: KPI Summary ───────────────────────────────────────────────
-  const kpiRows = [
-    ['JOEYI — OPERATIONS SCHEDULE', '', '', '', '', '', '', ''],
-    [deptFilter === 'All' ? 'All Departments' : deptFilter, '', 'Week:', weekRange, '', 'Export Version:', 'v' + version, ''],
-    ['Generated:', new Date().toLocaleString(), '', '', '', '', '', ''],
-    ['', '', '', '', '', '', '', ''],
-    // ── Work Orders ──
-    ['WORK ORDER SUMMARY', '', '', '', '', '', '', ''],
-    ['', 'Total WOs', 'PM WOs', 'CM WOs', 'Total Ops', 'Scheduled Ops', 'Unscheduled', 'Sched %'],
-    ['', totalWOs, pmWOs, cmWOs, totalOps, scheduledOps, unscheduledOps, schedPct + '%'],
-    ['', '', '', '', '', '', '', ''],
-    // ── Hours ──
-    ['HOURS', '', '', '', '', '', '', ''],
-    ['', 'Available Hours', 'Est Plan Hours', 'Assigned Hours', 'Utilization %', '', '', ''],
-    ['', totalAvailH, totalEstHours.toFixed(1), assignedHours.toFixed(1), utilPct + '%', '', '', ''],
-    ['', '', '', '', '', '', '', ''],
-    // ── PM vs CM ──
-    ['PM vs CM BREAKDOWN', '', '', '', '', '', '', ''],
-    ['', 'Type', 'Work Orders', 'Operations', 'Scheduled Ops', 'Sched %', '', ''],
-    ['', 'Planned Maintenance (PM)', pmWOs, pmOps, pmScheduled, pmOps > 0 ? Math.round(pmScheduled/pmOps*100)+'%' : '0%', '', ''],
-    ['', 'Corrective Maintenance (CM)', cmWOs, cmOps, cmScheduled, cmOps > 0 ? Math.round(cmScheduled/cmOps*100)+'%' : '0%', '', ''],
-    ['', '', '', '', '', '', '', ''],
-    // ── Compliance ──
-    ['COMPLIANCE', '', '', '', '', '', '', ''],
-    ['', 'On Track', 'At Risk', 'Overdue', 'Complete', 'Total WOs', '', ''],
-    ['', onTrack, atRisk, overdue, complete, totalWOs, '', ''],
-    ['', '', '', '', '', '', '', ''],
-    // ── Dept breakdown ──
-    ['BY DEPARTMENT', '', '', '', '', '', '', ''],
-    ['', 'Department', 'WOs', 'Ops', 'Scheduled', 'Sched %', 'Est Hours', 'Utilization %'],
+  // ── SHEET 1: KPI Summary ─────────────────────────────────────────────
+  const NC = 10; // number of columns
+
+  // Title banner
+  const titleRow   = [hdr('JOEYI \u2014 OPERATIONS SCHEDULE', NAVY, ORANGE, 16)].concat(Array(NC-1).fill(emptyNavy()));
+  const subRow     = [hdr(deptFilter === 'All' ? 'All Departments' : deptFilter, NAVY, SLATEL, 10),
+                      emptyNavy(), emptyNavy(),
+                      hdr('Week:', NAVY, SLATEL, 10), hdr(weekRange, NAVY, WHITE, 11),
+                      emptyNavy(), emptyNavy(),
+                      hdr('Export Version:', NAVY, SLATEL, 10), hdr('v' + version, NAVY, ORANGE, 12),
+                      emptyNavy()];
+  const genRow     = [hdr('Generated: ' + new Date().toLocaleString(), NAVY, SLATE, 9)].concat(Array(NC-1).fill(emptyNavy()));
+  const spacerNavy = Array(NC).fill(emptyNavy());
+  const spacerW    = Array(NC).fill(empty(WHITE));
+
+  // Big stats row (WO + Hours + Util)
+  const statsHdrRow = [
+    sectionHdr('WORK ORDER SUMMARY'), empty(ORANGE), empty(ORANGE),
+    sectionHdr('HOURS'), empty(ORANGE), empty(ORANGE),
+    sectionHdr('UTILIZATION'), empty(ORANGE),
+    sectionHdr('COMPLIANCE'), empty(ORANGE)
   ];
 
+  const bigStatRow1 = [
+    bigStat(totalWOs),  bigStat(pmWOs, NAVY, TEAL),  bigStat(cmWOs, NAVY, AMBER),
+    bigStat(totalAvailH + 'h'), bigStat(totalEstHours.toFixed(0) + 'h', NAVY, TEAL), bigStat(assignedHours.toFixed(0) + 'h', NAVY, GREEN),
+    bigStat(utilPct + '%', NAVY, pctColor(utilPct) === GREEN ? GREEN : pctColor(utilPct)),
+    bigStat(scheduledOps + '/' + totalOps, NAVY, GREEN),
+    bigStat(overdue, NAVY, overdue > 0 ? RED : GREEN), bigStat(atRisk, NAVY, atRisk > 0 ? AMBER : GREEN)
+  ];
+
+  const bigLabelRow1 = [
+    bigLabel('Total WOs'), bigLabel('PM WOs'), bigLabel('CM WOs'),
+    bigLabel('Available'), bigLabel('Est Plan'), bigLabel('Assigned'),
+    bigLabel('Utilization'),
+    bigLabel('Ops Scheduled'),
+    bigLabel('Overdue WOs'), bigLabel('At Risk WOs')
+  ];
+
+  // PM vs CM section
+  const pmCmHdr = [sectionHdr('PM vs CM BREAKDOWN')].concat(Array(NC-1).fill(empty(ORANGE)));
+  const pmCmColHdr = [
+    colHdr('Type'), colHdr('Work Orders'), colHdr('Operations'),
+    colHdr('Scheduled Ops'), colHdr('Sched %'),
+    empty(LGREY), empty(LGREY), empty(LGREY), empty(LGREY), empty(LGREY)
+  ];
+  const pmPct = pmOps > 0 ? Math.round(pmScheduled/pmOps*100) : 0;
+  const cmPct = cmOps > 0 ? Math.round(cmScheduled/cmOps*100) : 0;
+  const pmRow = [
+    dataCell('Planned Maintenance (PM)', LGREY, DARK, 'left', true),
+    dataCell(pmWOs, LGREY, DARK, 'center'),
+    dataCell(pmOps, LGREY, DARK, 'center'),
+    dataCell(pmScheduled, LGREY, DARK, 'center'),
+    dataCell(pmPct + '%', LGREY, pctColor(pmPct), 'center', true),
+    empty(LGREY), empty(LGREY), empty(LGREY), empty(LGREY), empty(LGREY)
+  ];
+  const cmRow = [
+    dataCell('Corrective Maintenance (CM)', WHITE, DARK, 'left', true),
+    dataCell(cmWOs, WHITE, DARK, 'center'),
+    dataCell(cmOps, WHITE, DARK, 'center'),
+    dataCell(cmScheduled, WHITE, DARK, 'center'),
+    dataCell(cmPct + '%', WHITE, pctColor(cmPct), 'center', true),
+    empty(WHITE), empty(WHITE), empty(WHITE), empty(WHITE), empty(WHITE)
+  ];
+
+  // Compliance detail
+  const compHdr = [sectionHdr('COMPLIANCE SUMMARY')].concat(Array(NC-1).fill(empty(ORANGE)));
+  const compColHdr = [
+    colHdr('On Track'), colHdr('At Risk'), colHdr('Overdue'),
+    colHdr('Complete'), colHdr('Total WOs'),
+    empty(LGREY), empty(LGREY), empty(LGREY), empty(LGREY), empty(LGREY)
+  ];
+  const compData = [
+    dataCell(onTrack,  LGREY, GREEN, 'center', true),
+    dataCell(atRisk,   LGREY, atRisk  > 0 ? AMBER : DARK, 'center', true),
+    dataCell(overdue,  LGREY, overdue > 0 ? RED   : DARK, 'center', true),
+    dataCell(complete, LGREY, TEAL,  'center', true),
+    dataCell(totalWOs, LGREY, DARK,  'center', true),
+    empty(LGREY), empty(LGREY), empty(LGREY), empty(LGREY), empty(LGREY)
+  ];
+
+  // Dept breakdown
+  const deptHdr = [sectionHdr('BY DEPARTMENT')].concat(Array(NC-1).fill(empty(ORANGE)));
+  const deptColHdr = [
+    colHdr('Department'), colHdr('WOs'), colHdr('Ops'),
+    colHdr('Scheduled'), colHdr('Sched %'),
+    colHdr('Est Hours'), colHdr('Util %'),
+    empty(LGREY), empty(LGREY), empty(LGREY)
+  ];
   const depts = [...new Set(exportWOs.map(w => w.department))].sort();
-  depts.forEach(dept => {
-    const dWOs  = exportWOs.filter(w => w.department === dept);
-    const dOps  = dWOs.flatMap(w => w.operations);
+  const deptDataRows = depts.map((dept, idx) => {
+    const dWOs   = exportWOs.filter(w => w.department === dept);
+    const dOps   = dWOs.flatMap(w => w.operations);
     const dSched = dOps.filter(o => {
       const wo = dWOs.find(w => w.operations.includes(o));
       return wo && scheduledOpSet.has(wo.woNumber + '|' + o.opSeq);
@@ -2630,113 +2785,201 @@ function exportSchedule(openEmail) {
     const dEst   = dOps.reduce((s, o) => s + (o.estHours || 0), 0);
     const dEmps  = exportEmps.filter(e => e.department === dept);
     const dAvail = dEmps.reduce((s, e) => s + (e.hoursPerDay || 8) * dates.length, 0);
-    const dAssigned = exportAssigns
-      .filter(a => dWOs.some(w => w.woNumber === a.woNumber))
-      .reduce((s, a) => s + (a.hours || 0), 0);
-    const dUtil = dAvail > 0 ? Math.round(dAssigned / dAvail * 100) + '%' : 'N/A';
-    kpiRows.push(['', dept, dWOs.length, dOps.length, dSched,
-      dOps.length > 0 ? Math.round(dSched/dOps.length*100)+'%' : '0%',
-      dEst.toFixed(1), dUtil]);
+    const dAssigned = exportAssigns.filter(a => dWOs.some(w => w.woNumber === a.woNumber)).reduce((s, a) => s + a.hours, 0);
+    const dUtil  = dAvail > 0 ? Math.round(dAssigned / dAvail * 100) : 0;
+    const spct   = dOps.length > 0 ? Math.round(dSched / dOps.length * 100) : 0;
+    const bg     = idx % 2 === 0 ? LGREY : WHITE;
+    return [
+      dataCell(dept, bg, DARK, 'left', true),
+      dataCell(dWOs.length, bg, DARK, 'center'),
+      dataCell(dOps.length, bg, DARK, 'center'),
+      dataCell(dSched, bg, DARK, 'center'),
+      dataCell(spct + '%', bg, pctColor(spct), 'center', true),
+      dataCell(dEst.toFixed(1) + 'h', bg, DARK, 'center'),
+      dataCell(dAvail > 0 ? dUtil + '%' : 'N/A', bg, dAvail > 0 ? pctColor(dUtil) : SLATE, 'center', true),
+      empty(bg), empty(bg), empty(bg)
+    ];
   });
 
-  const wsKPI = mkWS(kpiRows, [28, 26, 12, 12, 12, 14, 12, 14], 1);
-  XLSX.utils.book_append_sheet(wb, wsKPI, '📊 KPI Summary');
-
-  // ── SHEET 2: Work Orders (re-importable) ──────────────────────────────
-  // Column names EXACTLY match what processWOSheet() looks for
-  const woHeaders = [
-    'WO Number', 'Description', 'Department', 'Priority', 'WO Type', 'PM',
-    'Asset Number', 'Asset Description',
-    'Scheduled Start', 'Scheduled End', 'Supervisor',
-    'Op Seq', 'Op Description', 'Craft/Resource', 'Est Hours', 'Depends On Op',
-    'Assigned To', 'Assigned Date', 'Assigned Hours', 'Status'
+  const kpiAoa = [
+    titleRow,       // 0
+    subRow,         // 1
+    genRow,         // 2
+    spacerNavy,     // 3
+    statsHdrRow,    // 4
+    bigStatRow1,    // 5
+    bigLabelRow1,   // 6
+    spacerW,        // 7
+    pmCmHdr,        // 8
+    pmCmColHdr,     // 9
+    pmRow,          // 10
+    cmRow,          // 11
+    spacerW,        // 12
+    compHdr,        // 13
+    compColHdr,     // 14
+    compData,       // 15
+    spacerW,        // 16
+    deptHdr,        // 17
+    deptColHdr,     // 18
+    ...deptDataRows
   ];
 
-  const woRows = [woHeaders];
-  exportWOs.forEach(wo => {
-    wo.operations.forEach(op => {
+  const wsKPI = XLSX.utils.aoa_to_sheet([]);
+  applySheet(wsKPI, kpiAoa,
+    [28, 14, 14, 14, 14, 14, 12, 16, 14, 14],
+    [24, 18, 14, 10, 20, 36, 16, 10, 20, 20, 22, 22, 10, 20, 20, 22, 10, 20, 20]
+  );
+  wsKPI['!merges'] = [
+    { s:{r:0,c:0}, e:{r:0,c:NC-1} },  // title full width
+    { s:{r:2,c:0}, e:{r:2,c:NC-1} },  // generated full width
+  ];
+  wsKPI['!freeze'] = { xSplit: 0, ySplit: 4 };
+  XLSX.utils.book_append_sheet(wb, wsKPI, '\uD83D\uDCCA KPI Summary');
+
+  // ── SHEET 2: Work Orders (re-importable + styled) ─────────────────────
+  const woColHdrs = [
+    'WO Number','Description','Department','Priority','WO Type','PM',
+    'Asset Number','Asset Description',
+    'Scheduled Start','Scheduled End','Supervisor',
+    'Op Seq','Op Description','Craft/Resource','Est Hours','Depends On Op',
+    'Assigned To','Assigned Date','Assigned Hours','Status'
+  ];
+
+  const woRows = [woColHdrs.map(h => colHdr(h, NAVY, WHITE))];
+  exportWOs.forEach((wo, wIdx) => {
+    wo.operations.forEach((op, oIdx) => {
       const opAssigns = exportAssigns.filter(a => a.woNumber === wo.woNumber && a.opSeq === op.opSeq);
+      const bg = wIdx % 2 === 0 ? OFFWH : WHITE;
       const base = [
-        wo.woNumber, wo.description, wo.department, wo.priority,
-        wo.woType || (wo.isPM ? 'PM' : 'CM'), wo.isPM ? 'Yes' : 'No',
-        wo.asset || '', wo.assetDesc || '',
-        wo.scheduledStart || '', wo.scheduledEnd || '', wo.supervisor || '',
-        op.opSeq, op.description, op.craft, op.estHours,
-        (op.dependencies || []).join(',')
+        dataCell(wo.woNumber, bg, ORANGE, 'left', true),
+        dataCell(wo.description, bg),
+        dataCell(wo.department, bg),
+        dataCell('P' + (wo.priority || 4), bg, DARK, 'center'),
+        dataCell(wo.woType || (wo.isPM ? 'PM' : 'CM'), bg, wo.isPM ? TEAL : AMBER, 'center', true),
+        dataCell(wo.isPM ? 'Yes' : 'No', bg, wo.isPM ? TEAL : DARK, 'center'),
+        dataCell(wo.asset || '', bg, SLATE),
+        dataCell(wo.assetDesc || '', bg, SLATE),
+        dataCell(wo.scheduledStart || '', bg, SLATE, 'center'),
+        dataCell(wo.scheduledEnd   || '', bg, SLATE, 'center'),
+        dataCell(wo.supervisor     || '', bg, SLATE),
+        dataCell(op.opSeq, bg, DARK, 'center', true),
+        dataCell(op.description, bg),
+        dataCell(op.craft, bg, TEAL, 'left', true),
+        dataCell(op.estHours, bg, DARK, 'center'),
+        dataCell((op.dependencies || []).join(','), bg, SLATE, 'center'),
       ];
       if (!opAssigns.length) {
-        woRows.push([...base, '', '', '', 'Unscheduled']);
+        woRows.push([...base,
+          dataCell('', bg, SLATE, 'center'),
+          dataCell('', bg, SLATE, 'center'),
+          dataCell('', bg, SLATE, 'center'),
+          dataCell('Unscheduled', bg, SLATE, 'center', true),
+        ]);
       } else {
         opAssigns.forEach(a => {
+          const sColor = a.status === 'Complete' ? GREEN : a.status === 'In Progress' ? TEAL : DARK;
           woRows.push([...base,
-            isPoolAssignment(a) ? getDisplayName(a) : a.employeeName,
-            a.date, a.hours, a.status || 'Scheduled'
+            dataCell(isPoolAssignment(a) ? getDisplayName(a) : a.employeeName, bg, DARK),
+            dataCell(a.date, bg, SLATE, 'center'),
+            dataCell(a.hours, bg, DARK, 'center'),
+            dataCell(a.status || 'Scheduled', bg, sColor, 'center', true),
           ]);
         });
       }
     });
   });
 
-  const wsWO = mkWS(woRows,
-    [14,30,16,8,10,5,14,26,12,12,18,8,28,16,10,14,22,14,12,12], 1);
-  XLSX.utils.book_append_sheet(wb, wsWO, '📋 Work Orders');
+  const wsWO = XLSX.utils.aoa_to_sheet([]);
+  applySheet(wsWO, woRows,
+    [14,30,16,8,10,5,14,26,12,12,18,7,28,16,10,12,22,12,10,12]);
+  wsWO['!freeze'] = { xSplit: 0, ySplit: 1 };
+  XLSX.utils.book_append_sheet(wb, wsWO, '\uD83D\uDCCB Work Orders');
 
   // ── SHEET 3: Capacity ─────────────────────────────────────────────────
   const dayLabels = dates.map((d, i) => ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i] + ' ' + fmtDate(d));
-  const capHeaders = ['Department', 'Resource / Craft', 'Headcount', ...dayLabels, 'Week Total', 'Available', 'Util %'];
-  const capRows    = [capHeaders];
+  const capHdrRow = [
+    colHdr('Department', NAVY), colHdr('Craft / Resource', NAVY),
+    colHdr('Headcount', NAVY),
+    ...dayLabels.map(d => colHdr(d, NAVY)),
+    colHdr('Week Total', NAVY), colHdr('Available', NAVY), colHdr('Util %', NAVY)
+  ];
 
-  // Build craft-level utilisation per dept (mirrors Capacity Detail Table)
   const craftMap = {};
   exportAssigns.forEach(a => {
-    const wo  = exportWOs.find(w => w.woNumber === a.woNumber);
+    const wo    = exportWOs.find(w => w.woNumber === a.woNumber);
     if (!wo) return;
-    const op  = wo.operations.find(o => o.opSeq === a.opSeq);
+    const op    = wo.operations.find(o => o.opSeq === a.opSeq);
     const craft = op ? op.craft : 'General';
-    const dept  = wo.department;
-    const key   = dept + '||' + craft;
-    if (!craftMap[key]) craftMap[key] = { dept, craft, days: {} };
+    const key   = wo.department + '||' + craft;
+    if (!craftMap[key]) craftMap[key] = { dept: wo.department, craft, days: {} };
     craftMap[key].days[a.date] = (craftMap[key].days[a.date] || 0) + a.hours;
   });
 
+  const capRows = [capHdrRow];
   const deptsSorted = [...new Set(exportWOs.map(w => w.department))].sort();
+  let capIdx = 0;
   deptsSorted.forEach(dept => {
     const deptEmps = exportEmps.filter(e => e.department === dept);
     const crafts   = [...new Set(deptEmps.map(e => e.craft))].sort();
     crafts.forEach(craft => {
       const craftEmps = deptEmps.filter(e => e.craft === craft);
-      const hpd       = craftEmps.length > 0 ? craftEmps[0].hoursPerDay || 8 : 8;
+      const hpd       = craftEmps.length > 0 ? (craftEmps[0].hoursPerDay || 8) : 8;
       const avail     = craftEmps.length * hpd * dates.length;
       const key       = dept + '||' + craft;
       const dayHours  = dates.map(d => craftMap[key]?.days[d] || 0);
       const weekTotal = dayHours.reduce((s, h) => s + h, 0);
-      const util      = avail > 0 ? Math.round(weekTotal / avail * 100) + '%' : '0%';
-      capRows.push([dept, craft, craftEmps.length, ...dayHours, weekTotal.toFixed(1), avail, util]);
+      const util      = avail > 0 ? Math.round(weekTotal / avail * 100) : 0;
+      const bg        = capIdx % 2 === 0 ? OFFWH : WHITE;
+      const uColor    = pctColor(util);
+      capRows.push([
+        dataCell(dept, bg, DARK, 'left', true),
+        dataCell(craft, bg, TEAL, 'left', true),
+        dataCell(craftEmps.length, bg, DARK, 'center'),
+        ...dayHours.map(h => dataCell(h > 0 ? h.toFixed(1) : '', bg, h > 0 ? DARK : SLATE, 'center')),
+        dataCell(weekTotal.toFixed(1), bg, DARK, 'center', true),
+        dataCell(avail, bg, SLATE, 'center'),
+        dataCell(avail > 0 ? util + '%' : 'N/A', bg, uColor, 'center', true),
+      ]);
+      capIdx++;
     });
   });
 
-  const wsCapWidths = [16, 18, 10, ...dates.map(() => 12), 12, 10, 8];
-  const wsCap = mkWS(capRows, wsCapWidths, 1);
-  XLSX.utils.book_append_sheet(wb, wsCap, '📈 Capacity');
+  const wsCap = XLSX.utils.aoa_to_sheet([]);
+  applySheet(wsCap, capRows, [16, 18, 10, ...dates.map(() => 11), 12, 10, 9]);
+  wsCap['!freeze'] = { xSplit: 0, ySplit: 1 };
+  XLSX.utils.book_append_sheet(wb, wsCap, '\uD83D\uDCC8 Capacity');
 
-  // ── SHEET 4: Schedule Summary (supervisor × day grid) ─────────────────
-  const sumHeaders = ['Supervisor', 'Employee', 'Department', 'Craft', ...dayLabels, 'Total Hours'];
-  const sumRows    = [sumHeaders];
-
+  // ── SHEET 4: Schedule Summary ─────────────────────────────────────────
+  const sumHdrRow = [
+    colHdr('Supervisor', NAVY), colHdr('Employee', NAVY),
+    colHdr('Department', NAVY), colHdr('Craft', NAVY),
+    ...dayLabels.map(d => colHdr(d, NAVY)),
+    colHdr('Total Hours', NAVY)
+  ];
   const empDayMap = {};
   exportAssigns.forEach(a => {
-    if (isPoolAssignment(a)) return; // pools handled separately below
+    if (isPoolAssignment(a)) return;
     if (!empDayMap[a.employeeName]) empDayMap[a.employeeName] = {};
     empDayMap[a.employeeName][a.date] = (empDayMap[a.employeeName][a.date] || 0) + a.hours;
   });
-
+  const sumRows = [sumHdrRow];
+  let sumIdx = 0;
   exportEmps.forEach(emp => {
     const dayH = dates.map(d => empDayMap[emp.name]?.[d] || 0);
     const tot  = dayH.reduce((s, h) => s + h, 0);
-    if (tot > 0) sumRows.push([emp.supervisor || '', emp.name, emp.department, emp.craft, ...dayH, tot]);
+    if (tot > 0) {
+      const bg = sumIdx % 2 === 0 ? OFFWH : WHITE;
+      sumRows.push([
+        dataCell(emp.supervisor || '', bg, SLATE),
+        dataCell(emp.name, bg, DARK, 'left', true),
+        dataCell(emp.department, bg, DARK),
+        dataCell(emp.craft, bg, TEAL),
+        ...dayH.map(h => dataCell(h > 0 ? h : '', bg, h > 0 ? DARK : SLATE, 'center')),
+        dataCell(tot, bg, DARK, 'center', true),
+      ]);
+      sumIdx++;
+    }
   });
-
-  // Pool rows
   const poolMap = {};
   exportAssigns.filter(a => isPoolAssignment(a)).forEach(a => {
     const craft = getPoolCraft(a);
@@ -2746,98 +2989,123 @@ function exportSchedule(openEmail) {
   Object.entries(poolMap).forEach(([craft, days]) => {
     const dayH = dates.map(d => days[d] || 0);
     const tot  = dayH.reduce((s, h) => s + h, 0);
-    if (tot > 0) sumRows.push(['Pool', 'Resource Pool — ' + craft, '', craft, ...dayH, tot]);
+    if (tot > 0) {
+      const bg = sumIdx % 2 === 0 ? OFFWH : WHITE;
+      sumRows.push([
+        dataCell('Pool', bg, SLATE, 'left', true),
+        dataCell('Resource Pool \u2014 ' + craft, bg, TEAL, 'left', true),
+        dataCell('', bg), dataCell(craft, bg, TEAL),
+        ...dayH.map(h => dataCell(h > 0 ? h : '', bg, h > 0 ? TEAL : SLATE, 'center')),
+        dataCell(tot, bg, TEAL, 'center', true),
+      ]);
+      sumIdx++;
+    }
   });
-
-  const wsSum = mkWS(sumRows, [18, 22, 16, 14, ...dates.map(() => 10), 12], 1);
-  XLSX.utils.book_append_sheet(wb, wsSum, '📅 Schedule Summary');
+  const wsSum = XLSX.utils.aoa_to_sheet([]);
+  applySheet(wsSum, sumRows, [18, 22, 16, 14, ...dates.map(() => 10), 12]);
+  wsSum['!freeze'] = { xSplit: 0, ySplit: 1 };
+  XLSX.utils.book_append_sheet(wb, wsSum, '\uD83D\uDCC5 Schedule Summary');
 
   // ── SHEET 5: Compliance ───────────────────────────────────────────────
   const compHeaders = [
-    'WO Number', 'Description', 'Department', 'Priority', 'Type',
-    'Asset', 'Supervisor', 'Sched Start', 'Sched End',
-    'Ops Total', 'Ops Scheduled', 'Ops Complete', '% Scheduled',
-    'Compliance Status'
-  ];
-  const compRows = [compHeaders];
+    'WO Number','Description','Department','Priority','Type',
+    'Asset','Supervisor','Sched Start','Sched End',
+    'Ops Total','Ops Scheduled','% Scheduled','Compliance Status'
+  ].map(h => colHdr(h, NAVY));
 
-  exportWOs.forEach(wo => {
-    const woOps    = wo.operations.length;
-    const woSched  = wo.operations.filter(o => scheduledOpSet.has(wo.woNumber + '|' + o.opSeq)).length;
-    const woComp   = 0; // completion tracked separately if progress data exists
-    const pct      = woOps > 0 ? Math.round(woSched / woOps * 100) + '%' : '0%';
-    const endDate  = wo.scheduledEnd ? new Date(wo.scheduledEnd) : null;
-    let compStatus = 'Unscheduled';
-    if (woSched === woOps && woOps > 0)                                    compStatus = 'Fully Scheduled';
-    else if (endDate && endDate < now)                                      compStatus = 'OVERDUE';
-    else if (endDate && (endDate - now) < 3 * 86400000 && woSched < woOps) compStatus = 'At Risk';
-    else if (woSched > 0)                                                   compStatus = 'Partial';
+  const compRows = [compHeaders];
+  exportWOs.forEach((wo, idx) => {
+    const woOps   = wo.operations.length;
+    const woSched = wo.operations.filter(o => scheduledOpSet.has(wo.woNumber + '|' + o.opSeq)).length;
+    const pct     = woOps > 0 ? Math.round(woSched / woOps * 100) : 0;
+    const endDate = wo.scheduledEnd ? new Date(wo.scheduledEnd) : null;
+    let status = 'Unscheduled';
+    if (woSched === woOps && woOps > 0)                                     status = 'Fully Scheduled';
+    else if (endDate && endDate < now)                                       status = 'OVERDUE';
+    else if (endDate && (endDate - now) < 3 * 86400000 && woSched < woOps)  status = 'At Risk';
+    else if (woSched > 0)                                                    status = 'Partial';
+    const bg  = idx % 2 === 0 ? OFFWH : WHITE;
+    const sC  = statusColor(status);
     compRows.push([
-      wo.woNumber, wo.description, wo.department, 'P' + (wo.priority || 4),
-      wo.woType || (wo.isPM ? 'PM' : 'CM'),
-      (wo.asset || '') + (wo.assetDesc ? ' – ' + wo.assetDesc : ''),
-      wo.supervisor || '',
-      wo.scheduledStart || '', wo.scheduledEnd || '',
-      woOps, woSched, woComp, pct, compStatus
+      dataCell(wo.woNumber, bg, ORANGE, 'left', true),
+      dataCell(wo.description, bg),
+      dataCell(wo.department, bg, DARK),
+      dataCell('P' + (wo.priority||4), bg, DARK, 'center', true),
+      dataCell(wo.woType||(wo.isPM?'PM':'CM'), bg, wo.isPM?TEAL:AMBER, 'center', true),
+      dataCell((wo.asset||'')+(wo.assetDesc?' \u2013 '+wo.assetDesc:''), bg, SLATE),
+      dataCell(wo.supervisor||'', bg, SLATE),
+      dataCell(wo.scheduledStart||'', bg, SLATE, 'center'),
+      dataCell(wo.scheduledEnd||'',   bg, SLATE, 'center'),
+      dataCell(woOps,   bg, DARK,  'center'),
+      dataCell(woSched, bg, DARK,  'center'),
+      dataCell(pct+'%', bg, pctColor(pct), 'center', true),
+      dataCell(status,  bg, sC, 'center', true),
     ]);
   });
-
-  const wsComp = mkWS(compRows,
-    [14,30,16,8,8,28,18,12,12,10,12,12,12,16], 1);
-  XLSX.utils.book_append_sheet(wb, wsComp, '✅ Compliance');
+  const wsComp = XLSX.utils.aoa_to_sheet([]);
+  applySheet(wsComp, compRows, [14,30,16,8,8,28,18,12,12,10,12,12,16]);
+  wsComp['!freeze'] = { xSplit: 0, ySplit: 1 };
+  XLSX.utils.book_append_sheet(wb, wsComp, '\u2705 Compliance');
 
   // ── SHEET 6: Employees (re-importable) ────────────────────────────────
-  const empHeaders = ['Employee Name', 'Department', 'Craft/Resource', 'Hours Per Day', 'Supervisor', 'Skills'];
-  const empRows = [empHeaders];
-  exportEmps.forEach(e => {
-    empRows.push([e.name, e.department, e.craft, e.hoursPerDay || 8, e.supervisor || '', e.skills || '']);
+  const empColHdrs = ['Employee Name','Department','Craft/Resource','Hours Per Day','Supervisor','Skills']
+    .map(h => colHdr(h, NAVY));
+  const empRows = [empColHdrs];
+  exportEmps.forEach((e, idx) => {
+    const bg = idx % 2 === 0 ? OFFWH : WHITE;
+    empRows.push([
+      dataCell(e.name, bg, DARK, 'left', true),
+      dataCell(e.department, bg, DARK),
+      dataCell(e.craft, bg, TEAL),
+      dataCell(e.hoursPerDay || 8, bg, DARK, 'center'),
+      dataCell(e.supervisor || '', bg, SLATE),
+      dataCell(e.skills || '', bg, SLATE),
+    ]);
   });
-  const wsEmp = mkWS(empRows, [22,16,16,12,18,30], 1);
-  XLSX.utils.book_append_sheet(wb, wsEmp, '👥 Employees');
+  const wsEmp = XLSX.utils.aoa_to_sheet([]);
+  applySheet(wsEmp, empRows, [22,16,16,12,18,30]);
+  wsEmp['!freeze'] = { xSplit: 0, ySplit: 1 };
+  XLSX.utils.book_append_sheet(wb, wsEmp, '\uD83D\uDC65 Employees');
 
-  // ── SHEET 7: Export Metadata ──────────────────────────────────────────
+  // ── SHEET 7: Export Info ──────────────────────────────────────────────
   const metaRows = [
-    ['JOEYI EXPORT METADATA'],
-    ['Tool', 'Joeyi — Operations Scheduling Workbench'],
-    ['Export URL', 'mcdougaj.github.io/eAM_Scheduling_Tool'],
-    [''],
-    ['EXPORT DETAILS'],
-    ['Week Of', weekRange],
-    ['Department Filter', deptFilter === 'All' ? 'All Departments' : deptFilter],
-    ['Export Version', 'v' + version],
-    ['Exported At', new Date().toLocaleString()],
-    ['Filename', filename],
-    [''],
-    ['CONTENT SUMMARY'],
-    ['Work Orders Exported', totalWOs],
-    ['Operations Exported', totalOps],
-    ['Assignments Exported', exportAssigns.length],
-    ['Employees Exported', exportEmps.length],
-    [''],
-    ['REIMPORT NOTES'],
-    ['Re-import instructions', 'Upload this file to Joeyi via "Import Data". Assignments in the'],
-    ['', '"Work Orders" sheet will be automatically restored.'],
-    ['Sheets used on import', '"Work Orders" sheet + "Employees" sheet'],
-    ['Version tracking', 'Version counter increments per week + department combination'],
+    [hdr('JOEYI EXPORT METADATA', NAVY, ORANGE, 14), emptyNavy()],
+    [dataCell('Tool',           OFFWH, SLATE, 'left', true), dataCell('Joeyi \u2014 Operations Scheduling Workbench', OFFWH, DARK)],
+    [dataCell('Export URL',     OFFWH, SLATE, 'left', true), dataCell('mcdougaj.github.io/eAM_Scheduling_Tool', OFFWH, TEAL)],
+    [empty(WHITE), empty(WHITE)],
+    [hdr('EXPORT DETAILS', NAVY, ORANGE, 11), emptyNavy()],
+    [dataCell('Week Of',            OFFWH, SLATE,'left',true), dataCell(weekRange,                        OFFWH, DARK)],
+    [dataCell('Department Filter',  OFFWH, SLATE,'left',true), dataCell(deptFilter==='All'?'All Departments':deptFilter, OFFWH, DARK)],
+    [dataCell('Export Version',     OFFWH, SLATE,'left',true), dataCell('v' + version,                    OFFWH, ORANGE)],
+    [dataCell('Exported At',        OFFWH, SLATE,'left',true), dataCell(new Date().toLocaleString(),       OFFWH, DARK)],
+    [dataCell('Filename',           OFFWH, SLATE,'left',true), dataCell(filename,                         OFFWH, DARK)],
+    [empty(WHITE), empty(WHITE)],
+    [hdr('CONTENT SUMMARY', NAVY, ORANGE, 11), emptyNavy()],
+    [dataCell('Work Orders', OFFWH,SLATE,'left',true), dataCell(totalWOs,           OFFWH,DARK)],
+    [dataCell('Operations',  OFFWH,SLATE,'left',true), dataCell(totalOps,           OFFWH,DARK)],
+    [dataCell('Assignments', OFFWH,SLATE,'left',true), dataCell(exportAssigns.length,OFFWH,DARK)],
+    [dataCell('Employees',   OFFWH,SLATE,'left',true), dataCell(exportEmps.length,  OFFWH,DARK)],
+    [empty(WHITE), empty(WHITE)],
+    [hdr('RE-IMPORT NOTES', NAVY, ORANGE, 11), emptyNavy()],
+    [dataCell('How to re-import', OFFWH,SLATE,'left',true), dataCell('Upload this file via "Import Data" \u2014 assignments will be restored automatically.', OFFWH, DARK)],
+    [dataCell('Sheets used',      OFFWH,SLATE,'left',true), dataCell('"Work Orders" sheet + "Employees" sheet', OFFWH, DARK)],
   ];
-  const wsMeta = mkWS(metaRows, [26, 50], 0);
-  XLSX.utils.book_append_sheet(wb, wsMeta, 'ℹ Export Info');
+  const wsMeta = XLSX.utils.aoa_to_sheet([]);
+  applySheet(wsMeta, metaRows, [22, 52]);
+  XLSX.utils.book_append_sheet(wb, wsMeta, '\u2139\uFE0F Export Info');
 
-  // ── Write & optionally email ───────────────────────────────────────────
+  // ── Write & email ─────────────────────────────────────────────────────
   if (openEmail) {
-    // Write to blob, create mailto: with attachment fallback
-    // Browsers don't allow mailto: file attachments; instead download + open mail
     XLSX.writeFile(wb, filename);
-    // Small delay then open default mail client
     setTimeout(() => {
-      const subject = encodeURIComponent('Schedule Export — ' + (deptFilter === 'All' ? 'All Departments' : deptFilter) + ' · ' + weekRange + ' · v' + version);
+      const subject = encodeURIComponent('Schedule Export \u2014 ' + (deptFilter === 'All' ? 'All Departments' : deptFilter) + ' \u00b7 ' + weekRange + ' \u00b7 v' + version);
       const body    = encodeURIComponent(
         'Hi,\n\nPlease find attached the operations schedule export.\n\n' +
         'Department: ' + (deptFilter === 'All' ? 'All Departments' : deptFilter) + '\n' +
         'Week: ' + weekRange + '\n' +
         'Version: v' + version + '\n\n' +
         'The file can be re-imported into Joeyi to restore or continue scheduling.\n\n' +
-        'Generated by Joeyi — Operations Scheduling Workbench\n' +
+        'Generated by Joeyi \u2014 Operations Scheduling Workbench\n' +
         'mcdougaj.github.io/eAM_Scheduling_Tool'
       );
       window.location.href = 'mailto:?subject=' + subject + '&body=' + body;
@@ -2846,6 +3114,7 @@ function exportSchedule(openEmail) {
     XLSX.writeFile(wb, filename);
   }
 }
+
 
 
 // ─── DRAG & DROP ───
