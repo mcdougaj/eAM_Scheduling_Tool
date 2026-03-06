@@ -285,6 +285,56 @@
   .filter-active { background: var(--accent); color: #FFF; border: none; padding: 3px 8px; border-radius: 3px; font-size: 9px; font-weight: 600; cursor: pointer; font-family: inherit; display: flex; align-items: center; gap: 3px; }
   .filter-active:hover { filter: brightness(1.1); }
 
+
+  /* ─── GANTT CHART ─── */
+  .gantt-wrap { flex: 1; overflow: auto; display: flex; flex-direction: column; }
+  .gantt-table { border-collapse: collapse; min-width: 100%; font-size: 11px; }
+  .gantt-table th { background: var(--bg-card); padding: 6px 10px; font-weight: 700; color: var(--text-secondary); border-bottom: 2px solid var(--accent); position: sticky; top: 0; z-index: 10; white-space: nowrap; }
+  .gantt-table th.gantt-label-col { text-align: left; min-width: 280px; left: 0; z-index: 11; }
+  .gantt-table th.gantt-day-col { text-align: center; width: 100px; min-width: 80px; border-left: 1px solid var(--border); }
+  .gantt-wo-row td { border-bottom: 1px solid var(--border); vertical-align: middle; padding: 0; }
+  .gantt-wo-row td.gantt-label { padding: 6px 10px; background: var(--bg-surface); position: sticky; left: 0; z-index: 5; border-right: 2px solid var(--border); min-width: 280px; max-width: 280px; }
+  .gantt-wo-row td.gantt-day-cell { border-left: 1px solid var(--border); height: 40px; position: relative; background: var(--cell-bg); transition: background 0.15s; cursor: pointer; }
+  .gantt-wo-row td.gantt-day-cell:hover { background: var(--cell-hover); }
+  .gantt-wo-row td.gantt-day-cell.today { background: var(--accent-glow); border-left: 2px solid var(--accent); }
+  .gantt-bar { position: absolute; top: 50%; transform: translateY(-50%); height: 22px; border-radius: 3px; display: flex; align-items: center; padding: 0 6px; font-size: 9px; font-weight: 700; color: #FFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: grab; user-select: none; box-shadow: 0 1px 4px #00000044; transition: filter 0.15s; z-index: 3; }
+  .gantt-bar:hover { filter: brightness(1.15); z-index: 4; }
+  .gantt-bar.dragging-bar { opacity: 0.6; cursor: grabbing; }
+  .gantt-bar.pm-bar { border-top: 2px solid #17A2B8; }
+  .gantt-bar.complete-bar { opacity: 0.6; text-decoration: line-through; }
+  .gantt-bar.out-of-window { border: 2px solid #F0AD4E; }
+  .gantt-dept-header td { padding: 5px 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; border-bottom: 1px solid var(--border); background: var(--bg-card); }
+  .gantt-controls { display: flex; gap: 8px; align-items: center; padding: 8px 16px; background: var(--bg-surface); border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap; }
+  .gantt-zoom-btn { background: var(--bg-hover); border: 1px solid var(--border); color: var(--text-primary); padding: 3px 10px; border-radius: 3px; font-size: 11px; cursor: pointer; font-family: inherit; }
+  .gantt-zoom-btn.active { background: var(--accent); color: #FFF; border-color: var(--accent); }
+  .gantt-zoom-btn:hover:not(.active) { border-color: var(--accent); color: var(--accent); }
+  .gantt-legend { display: flex; gap: 12px; align-items: center; margin-left: 16px; flex-wrap: wrap; }
+  .gantt-legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-secondary); }
+  .gantt-legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+
+  /* ─── CAPACITY HEAT MAP ─── */
+  .heatmap-wrap { overflow: auto; flex: 1; }
+  .heatmap-table { border-collapse: collapse; font-size: 11px; min-width: 100%; }
+  .heatmap-table th { background: var(--bg-card); padding: 6px 8px; font-weight: 700; color: var(--text-secondary); border-bottom: 2px solid var(--accent); position: sticky; top: 0; z-index: 10; white-space: nowrap; text-align: center; }
+  .heatmap-table th:first-child { text-align: left; position: sticky; left: 0; z-index: 11; min-width: 180px; }
+  .heatmap-table td { padding: 0; border-bottom: 1px solid var(--border); }
+  .heatmap-table td:first-child { position: sticky; left: 0; z-index: 5; background: var(--bg-surface); padding: 6px 10px; font-weight: 600; border-right: 2px solid var(--border); min-width: 180px; }
+  .heatmap-cell { width: 100%; height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; transition: filter 0.15s; }
+  .heatmap-cell:hover { filter: brightness(1.1); }
+  .heatmap-cell .hm-pct { font-size: 13px; font-weight: 700; }
+  .heatmap-cell .hm-hrs { font-size: 9px; opacity: 0.8; margin-top: 2px; }
+  .hm-empty { background: var(--cell-bg); color: var(--text-muted); }
+  .hm-green { background: #28A74522; color: #28A745; border: 1px solid #28A74533; }
+  .hm-yellow { background: #F0AD4E22; color: #B87000; border: 1px solid #F0AD4E44; }
+  .hm-orange { background: #E8712A22; color: #E8712A; border: 1px solid #E8712A44; }
+  .hm-red { background: #DC354522; color: #DC3545; border: 1px solid #DC354544; }
+  .hm-off { background: var(--bg-surface); color: var(--text-muted); font-size: 9px; }
+  .heatmap-section td { padding: 4px 10px 2px; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; background: var(--bg-card); }
+  .capacity-tabs { display: flex; gap: 2px; padding: 8px 16px 0; background: var(--bg-surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .cap-tab { padding: 6px 16px; border: 1px solid var(--border); border-bottom: none; border-radius: 4px 4px 0 0; font-size: 11px; font-weight: 600; cursor: pointer; background: var(--bg-base); color: var(--text-secondary); font-family: inherit; }
+  .cap-tab.active { background: var(--bg-card); color: var(--text-primary); border-bottom-color: var(--bg-card); }
+  .cap-tab:hover:not(.active) { color: var(--text-primary); background: var(--bg-hover); }
+
   /* Dependency violations */
   .dep-violated { border: 2px solid #DC3545 !important; box-shadow: 0 0 6px #DC354544; animation: depPulse 2s infinite; }
   .dep-warn { border: 2px solid #F0AD4E !important; }
@@ -386,6 +436,13 @@ const state = {
   showPMBadges: true,
   // Resource capacity: { 'Mechanic': { headcount: 2, hoursPerDay: 16 }, ... }
   resourceCapacity: {},
+  // Gantt state
+  ganttZoom: 'week',   // 'week' | 'month'
+  ganttDrag: null,     // { woNumber, startX, origStart, origEnd }
+  ganttShowOps: true,
+  ganttGroupBy: 'dept', // 'dept' | 'priority'
+  // Capacity view sub-tab
+  capacityTab: 'table', // 'table' | 'heatmap'
 };
 
 // ─── CONSTANTS ───
@@ -3142,6 +3199,387 @@ function showAvailModal(empName) {
   };
 }
 
+
+// ─── GANTT VIEW HELPERS ───
+function getGanttDates() {
+  // Returns array of date strings for gantt display window
+  const weekDates = getWeekDates();
+  if (state.ganttZoom === 'week') return weekDates;
+  // Month view: 4 weeks centered on current week
+  const base = new Date(state.weekStart + 'T00:00:00');
+  const start = new Date(base);
+  start.setDate(start.getDate() - 7);
+  const dates = [];
+  for (let i = 0; i < 28; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    dates.push(d.toISOString().split('T')[0]);
+  }
+  return dates;
+}
+
+function getPriorityColor(p) {
+  if (p <= 1) return '#DC3545';
+  if (p <= 2) return '#E8712A';
+  if (p <= 3) return '#F0AD4E';
+  if (p <= 4) return '#28A745';
+  return '#6C757D';
+}
+
+function renderGanttView(html, dates) {
+  const today = new Date().toISOString().split('T')[0];
+  const ganttDates = getGanttDates();
+  const cellW = state.ganttZoom === 'week' ? 100 : 60;
+
+  // Filter WOs
+  let wos = state.workOrders.filter(wo => {
+    if (state.filterDept !== 'All' && wo.department !== state.filterDept) return false;
+    if (state.filterSupervisor !== 'All' && wo.supervisor !== state.filterSupervisor) return false;
+    if (state.filterWOType === 'PM' && !wo.isPM) return false;
+    if (state.filterWOType === 'CM' && wo.isPM) return false;
+    return true;
+  });
+
+  // Sort by priority then PM first
+  wos = wos.slice().sort((a,b) => {
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    if (a.isPM !== b.isPM) return a.isPM ? -1 : 1;
+    return 0;
+  });
+
+  html += `<div class="gantt-controls">
+    <span style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px">Zoom:</span>
+    <button class="gantt-zoom-btn ${state.ganttZoom==='week'?'active':''}" onclick="state.ganttZoom='week';render()">Week</button>
+    <button class="gantt-zoom-btn ${state.ganttZoom==='month'?'active':''}" onclick="state.ganttZoom='month';render()">4-Week</button>
+    <button class="gantt-zoom-btn ${state.ganttShowOps?'active':''}" onclick="state.ganttShowOps=!state.ganttShowOps;render()">${state.ganttShowOps?'▼':'▶'} Operations</button>
+    <button class="gantt-zoom-btn ${state.ganttGroupBy==='dept'?'active':''}" onclick="state.ganttGroupBy='dept';render()">By Dept</button>
+    <button class="gantt-zoom-btn ${state.ganttGroupBy==='priority'?'active':''}" onclick="state.ganttGroupBy='priority';render()">By Priority</button>
+    <div class="gantt-legend">
+      <div class="gantt-legend-item"><div class="gantt-legend-swatch" style="background:#28A745"></div>Low</div>
+      <div class="gantt-legend-item"><div class="gantt-legend-swatch" style="background:#F0AD4E"></div>Medium</div>
+      <div class="gantt-legend-item"><div class="gantt-legend-swatch" style="background:#E8712A"></div>High/Urgent</div>
+      <div class="gantt-legend-item"><div class="gantt-legend-swatch" style="background:#DC3545"></div>Emergency</div>
+      <div class="gantt-legend-item"><div class="gantt-legend-swatch" style="background:#17A2B8;border-top:2px solid #0d6efd"></div>PM</div>
+    </div>
+    <div style="flex:1"></div>
+    <span style="font-size:10px;color:var(--text-secondary)">Drag bars to reschedule</span>
+  </div>`;
+
+  html += `<div class="gantt-wrap" id="gantt-scroll-wrap">
+  <table class="gantt-table" id="gantt-main-table">
+  <thead><tr>
+    <th class="gantt-label-col">Work Order</th>`;
+  ganttDates.forEach(d => {
+    const isToday = d === today;
+    const isWeekday = ganttDates.indexOf(d) < 6 || state.ganttZoom === 'month';
+    html += `<th class="gantt-day-col" style="${isToday?'color:var(--accent);border-bottom-color:var(--accent)':''}" style="width:${cellW}px">
+      ${fmtDate(d)}${state.ganttZoom==='month'?'<br><span style="font-size:8px;opacity:0.6">'+['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(d+'T00:00:00').getDay()]+'</span>':''}
+    </th>`;
+  });
+  html += `</tr></thead><tbody>`;
+
+  // Group WOs
+  const groups = state.ganttGroupBy === 'dept'
+    ? DEPARTMENTS.map(d => ({ label: d, color: (DEPT_COLORS[d]||{}).badge||'#888', wos: wos.filter(w => w.department === d) })).filter(g => g.wos.length)
+    : [1,2,3,4,5].map(p => ({ label: `P${p} — ${{1:'Emergency',2:'Urgent',3:'High',4:'Medium',5:'Low'}[p]}`, color: getPriorityColor(p), wos: wos.filter(w => w.priority === p) })).filter(g => g.wos.length);
+
+  groups.forEach(group => {
+    html += `<tr class="gantt-dept-header"><td colspan="${ganttDates.length+1}" style="border-left:3px solid ${group.color}">
+      <span style="color:${group.color}">${group.label}</span>
+      <span style="font-size:10px;color:var(--text-secondary);margin-left:8px">${group.wos.length} WO${group.wos.length!==1?'s':''}</span>
+    </td></tr>`;
+
+    group.wos.forEach(wo => {
+      const dc = DEPT_COLORS[wo.department] || {};
+      const pColor = getPriorityColor(wo.priority);
+      const barColor = wo.isPM ? '#17A2B8' : pColor;
+      const ws = wo.scheduledStart ? wo.scheduledStart.slice(0,10) : '';
+      const we = wo.scheduledEnd ? wo.scheduledEnd.slice(0,10) : '';
+      const allAssigned = state.assignments.filter(a => a.woNumber === wo.woNumber);
+      const completePct = allAssigned.length > 0
+        ? Math.round((allAssigned.filter(a=>a.status==='Complete').length / allAssigned.length)*100) : 0;
+
+      // Calculate bar position/width as percentages across the gantt date range
+      const totalDays = ganttDates.length;
+      const ganttStart = ganttDates[0];
+      const ganttEnd = ganttDates[ganttDates.length-1];
+
+      // WO row
+      html += `<tr class="gantt-wo-row" data-wo="${wo.woNumber}">
+        <td class="gantt-label">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="display:inline-block;width:3px;height:24px;border-radius:2px;background:${barColor};flex-shrink:0"></span>
+            <div style="min-width:0">
+              <div style="font-weight:700;color:var(--accent);font-size:11px">${wo.woNumber}</div>
+              <div style="font-size:10px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px" title="${wo.description}">${wo.description}</div>
+              <div style="font-size:9px;color:var(--text-secondary)">${wo.department} · ${wo.supervisor}${wo.isPM?' · <span style="color:#17A2B8">PM</span>':''}</div>
+            </div>
+          </div>
+        </td>`;
+
+      // Render day cells — bar spans from scheduledStart to scheduledEnd
+      // Find which cells the bar spans
+      const barStartIdx = ws ? ganttDates.indexOf(ws) : -1;
+      const barEndIdx = we ? ganttDates.indexOf(we) : -1;
+
+      // Build a map of which cells are in the bar range
+      const barCells = new Set();
+      if (ws && we) {
+        ganttDates.forEach((d, i) => { if (d >= ws && d <= we) barCells.add(i); });
+      }
+
+      ganttDates.forEach((d, i) => {
+        const isToday = d === today;
+        const inBar = barCells.has(i);
+        const isBarStart = inBar && (i === 0 || !barCells.has(i-1));
+        const isBarEnd = inBar && (i === ganttDates.length-1 || !barCells.has(i+1));
+        const barWidth = barCells.size;
+
+        html += `<td class="gantt-day-cell${isToday?' today':''}" 
+          data-date="${d}" data-wo="${wo.woNumber}"
+          onclick="ganttCellClick('${wo.woNumber}','${d}')"
+          ondragover="ganttDragOver(event,'${wo.woNumber}','${d}')"
+          ondrop="ganttDrop(event,'${wo.woNumber}','${d}')"
+          ondragenter="event.preventDefault()"
+          style="width:${cellW}px">`;
+
+        if (isBarStart && ws && we) {
+          // Render the bar spanning from this cell forward
+          const spanCols = barCells.size;
+          const pctComplete = completePct;
+          html += `<div class="gantt-bar${wo.isPM?' pm-bar':''}${completePct===100?' complete-bar':''}"
+            style="left:2px;right:2px;background:${barColor};width:calc(${spanCols*cellW}px - 4px - ${i*0}px)"
+            draggable="true"
+            ondragstart="ganttBarDragStart(event,'${wo.woNumber}')"
+            ondragend="ganttBarDragEnd(event)"
+            title="${wo.woNumber}: ${wo.description}&#10;${fmtDate(ws)} – ${fmtDate(we)}&#10;Priority: P${wo.priority} ${PRIORITY[wo.priority]}&#10;${completePct}% complete">
+            <div style="position:absolute;left:0;top:0;bottom:0;background:rgba(255,255,255,0.2);border-radius:3px 0 0 3px;width:${pctComplete}%;pointer-events:none"></div>
+            <span style="position:relative;z-index:1">${wo.woNumber} ${spanCols > 2 ? '· '+wo.description.substring(0,20)+(wo.description.length>20?'…':'') : ''}</span>
+          </div>`;
+        }
+        html += `</td>`;
+      });
+      html += `</tr>`;
+
+      // Operation rows
+      if (state.ganttShowOps) {
+        wo.operations.forEach(op => {
+          const opAssigns = state.assignments.filter(a => a.woNumber === wo.woNumber && a.opSeq === op.opSeq && !isPoolAssignment(a));
+          const cc = gc(op.craft);
+
+          html += `<tr class="gantt-op-row">
+            <td class="gantt-label">
+              <span style="color:var(--text-muted);margin-right:4px">↳</span>
+              <span class="tag" style="background:${cc.badge};font-size:8px">${op.craft}</span>
+              <span style="color:var(--text-secondary);font-size:10px;margin-left:4px">Op${op.opSeq}: ${op.description.substring(0,30)}${op.description.length>30?'…':''}</span>
+              <span style="color:var(--text-muted);font-size:9px;margin-left:4px">${op.estHours}h</span>
+            </td>`;
+
+          ganttDates.forEach(d => {
+            const dayAssigns = opAssigns.filter(a => a.date === d);
+            html += `<td class="gantt-day-cell" style="width:${cellW}px">`;
+            if (dayAssigns.length) {
+              const totalHrs = dayAssigns.reduce((s,a) => s+a.hours, 0);
+              const isDone = dayAssigns.every(a => a.status === 'Complete');
+              html += `<div class="gantt-op-bar" style="left:2px;right:2px;background:${cc.badge};opacity:${isDone?0.4:0.75}"
+                title="${dayAssigns.map(a=>a.employeeName+' ('+a.hours+'h)').join(', ')}"></div>
+                <div style="position:absolute;bottom:2px;right:3px;font-size:8px;color:${cc.badge};font-weight:700">${totalHrs}h</div>`;
+            }
+            html += `</td>`;
+          });
+          html += `</tr>`;
+        });
+      }
+    });
+  });
+
+  if (wos.length === 0) {
+    html += `<tr><td colspan="${ganttDates.length+1}" style="text-align:center;padding:40px;color:var(--text-muted)">
+      No work orders match current filters
+    </td></tr>`;
+  }
+
+  html += `</tbody></table></div>`;
+  return html;
+}
+
+// ─── GANTT DRAG-TO-RESCHEDULE ───
+let _ganttDragWO = null;
+let _ganttDragStartDate = null;
+
+function ganttBarDragStart(e, woNumber) {
+  _ganttDragWO = woNumber;
+  const wo = state.workOrders.find(w => w.woNumber === woNumber);
+  _ganttDragStartDate = wo ? wo.scheduledStart : null;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', woNumber);
+  e.currentTarget.classList.add('dragging-bar');
+}
+
+function ganttBarDragEnd(e) {
+  if (e.currentTarget) e.currentTarget.classList.remove('dragging-bar');
+  _ganttDragWO = null;
+  _ganttDragStartDate = null;
+}
+
+function ganttDragOver(e, woNumber, date) {
+  if (_ganttDragWO === woNumber) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }
+}
+
+function ganttDrop(e, woNumber, targetDate) {
+  e.preventDefault();
+  if (_ganttDragWO !== woNumber) return;
+
+  const wo = state.workOrders.find(w => w.woNumber === woNumber);
+  if (!wo || !wo.scheduledStart || !wo.scheduledEnd) return;
+
+  const origStart = wo.scheduledStart.slice(0,10);
+  const origEnd = wo.scheduledEnd.slice(0,10);
+
+  // Calculate day offset from original start to drop target
+  const startMs = new Date(origStart + 'T00:00:00').getTime();
+  const dropMs = new Date(targetDate + 'T00:00:00').getTime();
+  const dayOffset = Math.round((dropMs - startMs) / 86400000);
+
+  if (dayOffset === 0) return;
+
+  // Shift both start and end by offset
+  const newStart = new Date(origStart + 'T00:00:00');
+  newStart.setDate(newStart.getDate() + dayOffset);
+  const newEnd = new Date(origEnd + 'T00:00:00');
+  newEnd.setDate(newEnd.getDate() + dayOffset);
+
+  wo.scheduledStart = newStart.toISOString().split('T')[0];
+  wo.scheduledEnd = newEnd.toISOString().split('T')[0];
+
+  // Also shift existing assignments if they're within the old window
+  state.assignments.filter(a => a.woNumber === woNumber).forEach(a => {
+    const aDate = new Date(a.date + 'T00:00:00');
+    aDate.setDate(aDate.getDate() + dayOffset);
+    a.date = aDate.toISOString().split('T')[0];
+  });
+
+  render();
+}
+
+function ganttCellClick(woNumber, date) {
+  if (_ganttDragWO) return; // ignore clicks during drag
+  // Click on empty cell sets WO start to that date (quick scheduling)
+  const wo = state.workOrders.find(w => w.woNumber === woNumber);
+  if (!wo) return;
+  if (!wo.scheduledStart) {
+    wo.scheduledStart = date;
+    wo.scheduledEnd = date;
+    render();
+  }
+}
+
+// ─── HEAT MAP RENDER ───
+function renderHeatMap(html, dates) {
+  html += `<div style="padding:20px 20px 8px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+    <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px">Capacity Heat Map</div>
+    <div style="display:flex;gap:8px;align-items:center;font-size:10px">
+      <span style="background:#28A74522;color:#28A745;border:1px solid #28A74533;padding:2px 8px;border-radius:3px">0–75% — Healthy</span>
+      <span style="background:#F0AD4E22;color:#B87000;border:1px solid #F0AD4E44;padding:2px 8px;border-radius:3px">75–90% — Near Capacity</span>
+      <span style="background:#E8712A22;color:#E8712A;border:1px solid #E8712A44;padding:2px 8px;border-radius:3px">90–100% — At Limit</span>
+      <span style="background:#DC354522;color:#DC3545;border:1px solid #DC354544;padding:2px 8px;border-radius:3px">>100% — Overloaded</span>
+    </div>
+  </div>`;
+
+  html += `<div class="heatmap-wrap"><table class="heatmap-table"><thead><tr>
+    <th>Employee / Resource</th>`;
+  dates.forEach((d,i) => {
+    html += `<th>${DAY_ABR[i]}<br><span style="font-size:9px;font-weight:400">${fmtDate(d)}</span></th>`;
+  });
+  html += `<th>Week</th></tr></thead><tbody>`;
+
+  // Employee rows grouped by dept
+  const capDepts = state.filterDept === 'All' ? DEPARTMENTS : [state.filterDept];
+  capDepts.forEach(dept => {
+    let emps = state.employees.filter(e => e.department === dept);
+    if (state.filterCraft !== 'All') emps = emps.filter(e => e.craft === state.filterCraft);
+    if (state.filterEmployee !== 'All') emps = emps.filter(e => e.name === state.filterEmployee);
+    if (state.filterSupervisor !== 'All') emps = emps.filter(e => e.supervisor === state.filterSupervisor);
+    if (!emps.length) return;
+
+    const dc = DEPT_COLORS[dept] || {};
+    html += `<tr class="heatmap-section"><td colspan="${dates.length+2}" style="color:${dc.badge||'#888'};border-left:3px solid ${dc.badge||'#888'}">${dept}</td></tr>`;
+
+    emps.forEach(emp => {
+      const wkAvail = getEmpWeekAvail(emp.name);
+      const wkLoad = getEmpWeekLoad(emp.name);
+      const wkUtil = wkAvail > 0 ? (wkLoad/wkAvail)*100 : 0;
+      const wkClass = wkUtil > 100 ? 'hm-red' : wkUtil > 90 ? 'hm-orange' : wkUtil > 75 ? 'hm-yellow' : wkLoad > 0 ? 'hm-green' : 'hm-empty';
+
+      html += `<tr><td><div style="display:flex;align-items:center;gap:6px">
+        <div>
+          <div style="font-weight:600;font-size:11px">${emp.name}</div>
+          <div style="font-size:9px;color:var(--text-secondary)">${emp.craft}</div>
+        </div>
+      </div></td>`;
+
+      dates.forEach(d => {
+        const avail = getEmpAvailHours(emp.name, d);
+        const load = getEmpLoad(emp.name, d);
+        const isOff = avail === 0;
+        const util = avail > 0 ? (load/avail)*100 : 0;
+        const cls = isOff ? 'hm-off' : util > 100 ? 'hm-red' : util > 90 ? 'hm-orange' : util > 75 ? 'hm-yellow' : load > 0 ? 'hm-green' : 'hm-empty';
+        const reason = getEmpAvailReason(emp.name, d);
+        const title = isOff ? (reason||'Day off') : `${load.toFixed(1)}h / ${avail}h (${Math.round(util)}%)`;
+        html += `<td title="${title}"><div class="heatmap-cell ${cls}">
+          ${isOff
+            ? `<div style="font-size:9px">OFF</div>${reason?`<div style="font-size:8px;opacity:0.7">${reason.substring(0,8)}</div>`:''}` 
+            : load > 0
+              ? `<div class="hm-pct">${Math.round(util)}%</div><div class="hm-hrs">${load.toFixed(1)}/${avail}h</div>`
+              : `<div style="font-size:9px;color:var(--text-muted)">${avail}h avail</div>`
+          }
+        </div></td>`;
+      });
+      html += `<td><div class="heatmap-cell ${wkClass}">
+        ${wkLoad > 0 ? `<div class="hm-pct">${Math.round(wkUtil)}%</div><div class="hm-hrs">${wkLoad.toFixed(1)}/${wkAvail}h</div>` : `<div style="font-size:9px;color:var(--text-muted)">${wkAvail}h</div>`}
+      </div></td></tr>`;
+    });
+
+    // Resource pool rows for this dept
+    let deptConfigs = Object.entries(state.craftConfig).filter(([k,v]) => v.dept === dept);
+    if (state.filterCraft !== 'All') deptConfigs = deptConfigs.filter(([k,v]) => v.resource === state.filterCraft);
+    if (deptConfigs.length) {
+      html += `<tr class="heatmap-section"><td colspan="${dates.length+2}" style="color:${dc.badge||'#888'};padding-left:20px;font-size:9px">Resource Pools</td></tr>`;
+      deptConfigs.forEach(([key, cfg]) => {
+        const cc = gc(cfg.resource);
+        const weekSched = dates.reduce((s,d) => s + getDeptCraftCap(dept, cfg.resource, d).scheduled, 0);
+        const weekAvail = dates.length * cfg.headcount * cfg.hoursPerDay;
+        const wkUtil = weekAvail > 0 ? (weekSched/weekAvail)*100 : 0;
+        const wkClass = wkUtil > 100 ? 'hm-red' : wkUtil > 90 ? 'hm-orange' : wkUtil > 75 ? 'hm-yellow' : weekSched > 0 ? 'hm-green' : 'hm-empty';
+
+        html += `<tr><td><div style="display:flex;align-items:center;gap:6px">
+          <div class="tag" style="background:${cc.badge}">${cfg.resource}</div>
+          <div style="font-size:9px;color:var(--text-secondary)">${cfg.headcount} people · ${cfg.hoursPerDay}h/day</div>
+        </div></td>`;
+
+        dates.forEach(d => {
+          const cap = getDeptCraftCap(dept, cfg.resource, d);
+          const cls = cap.utilization > 100 ? 'hm-red' : cap.utilization > 90 ? 'hm-orange' : cap.utilization > 75 ? 'hm-yellow' : cap.scheduled > 0 ? 'hm-green' : 'hm-empty';
+          html += `<td><div class="heatmap-cell ${cls}">
+            ${cap.scheduled > 0
+              ? `<div class="hm-pct">${Math.round(cap.utilization)}%</div><div class="hm-hrs">${cap.scheduled.toFixed(1)}/${cap.available}h</div>`
+              : `<div style="font-size:9px;color:var(--text-muted)">${cap.available}h</div>`}
+          </div></td>`;
+        });
+        html += `<td><div class="heatmap-cell ${wkClass}">
+          ${weekSched > 0 ? `<div class="hm-pct">${Math.round(wkUtil)}%</div><div class="hm-hrs">${weekSched.toFixed(1)}/${weekAvail}h</div>` : `<div style="font-size:9px;color:var(--text-muted)">${weekAvail}h</div>`}
+        </div></td></tr>`;
+      });
+    }
+  });
+
+  html += `</tbody></table></div>`;
+  return html;
+}
+
 // ─── RENDER ───
 function render() {
   const dates = getWeekDates();
@@ -3171,6 +3609,7 @@ function render() {
       <button class="nav-btn ${state.view==='import'?'active':''}" onclick="setView('import')" style="${state.view==='import'?'background:#17A2B8;color:white':''}">📁 Import Data</button>
       <button class="nav-btn ${state.view==='plan'?'active':''}" onclick="setView('plan')" ${!state.importLoaded?'disabled style="opacity:0.4;cursor:not-allowed"':''}>📋 Plan Week</button>
       <button class="nav-btn ${state.view==='schedule'?'active':''}" onclick="setView('schedule')" ${!state.importLoaded?'disabled style="opacity:0.4;cursor:not-allowed"':''}>Schedule Board</button>
+      <button class="nav-btn ${state.view==='gantt'?'active':''}" onclick="setView('gantt')" ${!state.importLoaded?'disabled style="opacity:0.4;cursor:not-allowed"':''}>📊 Gantt</button>
       <button class="nav-btn ${state.view==='backlog'?'active':''}" onclick="setView('backlog')" ${!state.importLoaded?'disabled style="opacity:0.4;cursor:not-allowed"':''}>Work Orders</button>
       <button class="nav-btn ${state.view==='employees'?'active':''}" onclick="setView('employees')" ${!state.importLoaded?'disabled style="opacity:0.4;cursor:not-allowed"':''}>Employees</button>
       <button class="nav-btn ${state.view==='capacity'?'active':''}" onclick="setView('capacity')" ${!state.importLoaded?'disabled style="opacity:0.4;cursor:not-allowed"':''}>Capacity</button>
@@ -3242,7 +3681,6 @@ function render() {
   </div>`}`;
 
   // ─── KPI DASHBOARD BAR (filter-aware) ───
-  if (state.view !== 'oracle') {
   const hasFilters = state.filterDept !== 'All' || state.filterCraft !== 'All' || state.filterEmployee !== 'All' || state.filterSupervisor !== 'All';
   
   // Filtered employee set
@@ -3420,7 +3858,7 @@ function render() {
   </div>
   ${!state.showKPIs ? `<div style="background:var(--bg-surface);border-bottom:1px solid var(--border);padding:2px 12px;text-align:right"><button class="kpi-toggle" style="font-size:10px;color:var(--text-secondary)" onclick="state.showKPIs=true;render()">▼ Show KPIs</button></div>` : ''}
   `;
-  } // end if (state.view !== 'import') for controls/KPI
+  // (controls/KPI block)
 
   html += `<div class="main">`;
 
@@ -3494,10 +3932,15 @@ function render() {
             Departments: ${state.importStats.depts.join(', ')} &nbsp;|&nbsp; Crafts: ${state.importStats.crafts.join(', ')}
             ${state.importStats.autoAllocated ? `<br><span style="color:#17A2B8;font-weight:600">⚡ ${state.importStats.autoAllocated} ops auto-allocated to resource pools by WO dates</span>` : ''}
           </div>
+          <div style="margin-top:10px;padding:8px 12px;background:var(--bg-hover);border-radius:4px;border-left:3px solid var(--accent);font-size:11px">
+            📅 <strong style="color:var(--accent)">Detected week:</strong> ${fmtDate(dates[0])} — ${fmtDate(dates[5])}
+            &nbsp;·&nbsp; <span style="color:var(--text-secondary)">Based on earliest WO scheduled start date</span>
+          </div>
           <div style="display:flex;gap:8px;margin-top:12px">
             ${state.importStats.assignments > 0 || state.importStats.autoAllocated > 0 ? `
               <button class="btn btn-green" style="flex:1;padding:12px;font-size:13px;border-radius:6px" onclick="state.boardView='resource';setView('schedule')">Resource Board →</button>
               ${state.importStats.emps > 0 ? `<button class="btn-outline" style="flex:1;padding:12px;font-size:12px;border-radius:6px" onclick="state.boardView='employee';setView('schedule')">Employee Board</button>` : ''}
+              <button class="btn-outline" style="padding:12px;font-size:12px;border-radius:6px" onclick="setView('gantt')">📊 Gantt</button>
               <button class="btn-outline" style="padding:12px;font-size:12px;border-radius:6px" onclick="setView('summary')">Summary</button>
             ` : `
               <button class="btn btn-green" style="flex:1;padding:12px;font-size:13px;border-radius:6px" onclick="setView('plan')">Continue to Plan Week →</button>
@@ -4057,6 +4500,14 @@ function render() {
     html += `</div><svg class="dep-svg-overlay" id="dep-lines-svg"></svg></div></div></div></div></div>`;
   }
 
+  // ─── GANTT VIEW ───
+  if (state.view === 'gantt') {
+    html += `<div style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0">`;
+    const ganttDates = getGanttDates();
+    html = renderGanttView(html, ganttDates);
+    html += `</div>`;
+  }
+
   // ─── WORK ORDERS VIEW ───
   if (state.view === 'backlog') {
     const filteredWOs = state.workOrders.filter(wo => {
@@ -4174,12 +4625,27 @@ function render() {
   if (state.view === 'capacity') {
     const totalSched = state.assignments.reduce((s,a) => s+a.hours, 0);
     const totalAvail = dates.length * Object.values(state.craftConfig).reduce((s,c) => s + c.headcount*c.hoursPerDay, 0);
-    html += `<div class="content" style="padding:20px">
-      <div class="stat-cards">
-        <div class="stat-card"><div class="stat-value">${totalSched.toFixed(0)}</div><div class="stat-label">Scheduled Hours</div></div>
-        <div class="stat-card"><div class="stat-value">${totalAvail}</div><div class="stat-label">Available Hours</div></div>
-        <div class="stat-card"><div class="stat-value">${totalAvail>0?((totalSched/totalAvail)*100).toFixed(0)+'%':'N/A'}</div><div class="stat-label">Utilization</div></div>
-      </div>`;
+
+    // Tab bar
+    html += `<div class="capacity-tabs">
+      <button class="cap-tab ${state.capacityTab==='heatmap'?'active':''}" onclick="state.capacityTab='heatmap';render()">🔥 Heat Map</button>
+      <button class="cap-tab ${state.capacityTab==='table'?'active':''}" onclick="state.capacityTab='table';render()">📋 Detail Table</button>
+    </div>`;
+
+    // KPI summary always shown
+    html += `<div style="display:flex;gap:12px;padding:12px 20px;background:var(--bg-surface);border-bottom:1px solid var(--border);flex-shrink:0">
+      <div class="stat-card" style="flex:1;padding:10px 14px"><div class="stat-value" style="font-size:20px">${totalSched.toFixed(0)}</div><div class="stat-label">Scheduled Hours</div></div>
+      <div class="stat-card" style="flex:1;padding:10px 14px"><div class="stat-value" style="font-size:20px">${totalAvail}</div><div class="stat-label">Available Hours</div></div>
+      <div class="stat-card" style="flex:1;padding:10px 14px"><div class="stat-value" style="font-size:20px;color:${totalAvail>0&&(totalSched/totalAvail)>1?'#DC3545':(totalSched/totalAvail)>0.9?'#F0AD4E':'#28A745'}">${totalAvail>0?((totalSched/totalAvail)*100).toFixed(0)+'%':'N/A'}</div><div class="stat-label">Utilization</div></div>
+    </div>`;
+
+    if (state.capacityTab === 'heatmap') {
+      html += `<div style="flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0">`;
+      html = renderHeatMap(html, dates);
+      html += `</div>`;
+    } else {
+      html += `<div class="content" style="padding:20px">`;
+
 
     // Capacity tables grouped by department
     const capDepts = state.filterDept === 'All' ? DEPARTMENTS : [state.filterDept];
@@ -4278,6 +4744,7 @@ function render() {
       });
     });
     html += `</div>`;
+    } // end else (detail table tab)
   }
 
   // ─── EXECUTIVE SUMMARY VIEW ───
