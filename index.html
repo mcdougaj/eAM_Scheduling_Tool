@@ -4301,14 +4301,25 @@ function ganttPanelRefresh() {
 
   // Header
   document.getElementById('gap-title').textContent = _gapWO + '  ·  Op ' + _gapOp;
-  document.getElementById('gap-sub').textContent = op.description + '  ·  ' + op.craft + '  ·  ' + op.estHours + 'h est';
+  document.getElementById('gap-sub').textContent = op.description + '  ·  ' + op.craft;
+  const overUnder = assignedH - op.estHours;
+  const ouColor = overUnder > 0 ? '#DC3545' : overUnder < 0 ? '#F0AD4E' : '#28A745';
+  const ouLabel = overUnder > 0 ? '+' + overUnder.toFixed(1) + 'h over' : overUnder < 0 ? overUnder.toFixed(1) + 'h remaining' : 'fully covered';
   document.getElementById('gap-progress').innerHTML = `
-    <div style="display:flex;align-items:center;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <span style="font-size:15px;font-weight:700;color:var(--text-primary)">${op.estHours}h</span>
+        <span style="font-size:8px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Est (Plan)</span>
+      </div>
       <div style="flex:1;height:6px;background:var(--cap-bar-bg);border-radius:3px;overflow:hidden">
         <div style="height:100%;width:${pct}%;background:${pctColor};border-radius:3px;transition:width 0.3s"></div>
       </div>
-      <span style="font-size:10px;font-weight:700;color:${pctColor}">${assignedH.toFixed(1)}/${op.estHours}h</span>
-    </div>`;
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <span style="font-size:15px;font-weight:700;color:${pctColor}">${assignedH.toFixed(1)}h</span>
+        <span style="font-size:8px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Assigned</span>
+      </div>
+    </div>
+    <div style="text-align:center;font-size:10px;font-weight:700;color:${ouColor};background:${ouColor}18;border:1px solid ${ouColor}44;border-radius:4px;padding:2px 8px">${ouLabel}</div>`;
 
   // Current assignments
   const aDiv = document.getElementById('gap-assignments');
