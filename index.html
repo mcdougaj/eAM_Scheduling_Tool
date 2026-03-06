@@ -4853,6 +4853,8 @@ function ganttPanelRefresh() {
       const isPool = isPoolAssignment(a);
       const dayLoad = !isPool && getEmpLoad ? getEmpLoad(a.employeeName, a.date) : a.hours;
       const dayAvail = !isPool && getEmpAvailHours ? getEmpAvailHours(a.employeeName, a.date) : 0;
+      const dayPct   = dayAvail > 0 ? Math.min(100, Math.round(dayLoad / dayAvail * 100)) : 0;
+      const dayColor = dayPct >= 100 ? '#EF4444' : dayPct >= 80 ? '#F59E0B' : '#22C55E';
       const displayName = getDisplayName(a);
       const ini = isPool ? '◉' : a.employeeName.split(' ').map(w => w[0] || '').join('').substring(0,2).toUpperCase();
       const avatarBg = isPool ? '#17A2B8' : cc.badge;
