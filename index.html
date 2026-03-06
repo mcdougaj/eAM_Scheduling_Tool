@@ -3340,8 +3340,8 @@ function renderGanttView(html, dates) {
 
       // ── WO row ──
       html += `<tr style="height:${WO_ROW_H}px" 
-        ondragover="if(_ganttDragWO==='${wo.woNumber}')event.preventDefault()"
-        ondrop="ganttDropWO(event,'${wo.woNumber}')">
+        ondragover="ganttWORowOver(event,'${wo.woNumber}')"
+        ondrop="_ganttResizeWO==='${wo.woNumber}'?ganttDropResize(event,'${wo.woNumber}'):ganttDropWO(event,'${wo.woNumber}')">
         <td style="position:sticky;left:0;z-index:6;background:var(--bg-surface);
           border-bottom:1px solid var(--border);border-left:3px solid ${barColor};
           padding:4px 8px;vertical-align:middle;width:${labelW}px">
@@ -3365,8 +3365,8 @@ function renderGanttView(html, dates) {
         html += `<td style="position:relative;border-bottom:1px solid var(--border);border-left:1px solid var(--border);
           background:${isToday?'var(--accent-glow)':inBar?barColor+'12':isWeekend?'var(--bg-surface)':'var(--cell-bg)'};
           padding:0;overflow:visible"
-          ondragover="if(_ganttDragWO==='${wo.woNumber}')event.preventDefault()"
-          ondrop="ganttDropWO(event,'${wo.woNumber}')">`;
+          ondragover="ganttWORowOver(event,'${wo.woNumber}')"
+          ondrop="_ganttResizeWO==='${wo.woNumber}'?ganttDropResize(event,'${wo.woNumber}'):ganttDropWO(event,'${wo.woNumber}')">`;
 
         if (isBStart) {
           html += `<div class="gantt-bar${wo.isPM?' pm-bar':''}${completePct===100?' complete-bar':''}"
@@ -3374,19 +3374,31 @@ function renderGanttView(html, dates) {
             width:${barSpan*cellW - 6}px;height:26px;
             background:${barColor};z-index:4;
             border-radius:3px;display:flex;align-items:center;
-            box-shadow:0 1px 4px #00000044;cursor:grab"
+            box-shadow:0 1px 4px #00000044;cursor:grab;overflow:visible"
             draggable="true"
             ondragstart="ganttBarDragStart(event,'${wo.woNumber}',${barStartIdx*cellW})"
             ondragend="ganttBarDragEnd(event)"
             ondragover="event.stopPropagation();event.preventDefault()"
             ondrop="event.stopPropagation();ganttDropWO(event,'${wo.woNumber}')"
             onclick="event.stopPropagation()"
-            title="${wo.woNumber}: ${wo.description}&#10;${ws?fmtDate(ws)+' – '+fmtDate(we):'No dates'}&#10;P${wo.priority} ${PRIORITY[wo.priority]||''}&#10;${completePct}% complete">
+            title="${wo.woNumber}: ${wo.description}&#10;${ws?fmtDate(ws)+' – '+fmtDate(we):'No dates'}&#10;P${wo.priority} ${PRIORITY[wo.priority]||''}&#10;${completePct}% complete&#10;Drag right edge to expand window">
             <div style="position:absolute;left:0;top:0;bottom:0;width:${completePct}%;background:rgba(255,255,255,0.2);border-radius:3px 0 0 3px;pointer-events:none"></div>
-            <span style="position:relative;z-index:1;padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+            <span style="position:relative;z-index:1;padding:0 6px;padding-right:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
               font-size:9px;font-weight:700;color:#FFF;display:block;max-width:100%">
               ${wo.woNumber}${barSpan >= 2 ? ' · ' + wo.description.substring(0,22)+(wo.description.length>22?'…':'') : ''}
             </span>
+            <!-- Resize handle: right edge -->
+            <div draggable="true"
+              ondragstart="ganttResizeDragStart(event,'${wo.woNumber}')"
+              ondragend="ganttResizeDragEnd(event)"
+              ondragover="event.stopPropagation();event.preventDefault()"
+              onclick="event.stopPropagation()"
+              title="Drag to expand/contract WO window"
+              style="position:absolute;right:0;top:0;bottom:0;width:10px;
+                cursor:col-resize;z-index:5;display:flex;align-items:center;justify-content:center;
+                border-radius:0 3px 3px 0;background:rgba(0,0,0,0.2)">
+              <span style="color:rgba(255,255,255,0.8);font-size:8px;line-height:1;pointer-events:none">⋮</span>
+            </div>
           </div>`;
         }
         html += `</td>`;
@@ -3406,8 +3418,8 @@ function renderGanttView(html, dates) {
           const statusLabel = isFullySched ? '✓' : isPartial ? '~' : poolAssigns.length ? 'pool' : 'open';
 
           html += `<tr style="height:${OP_ROW_H}px;background:var(--bg-base)"
-            ondragover="if(_ganttDragWO==='${wo.woNumber}')event.preventDefault()"
-            ondrop="ganttDropWO(event,'${wo.woNumber}')">
+            ondragover="ganttWORowOver(event,'${wo.woNumber}')"
+            ondrop="_ganttResizeWO==='${wo.woNumber}'?ganttDropResize(event,'${wo.woNumber}'):ganttDropWO(event,'${wo.woNumber}')">
             <td style="position:sticky;left:0;z-index:6;background:var(--bg-base);
               border-bottom:1px solid var(--border);border-left:2px solid ${cc.badge}55;
               padding:2px 6px 2px 14px;vertical-align:middle">
@@ -3492,28 +3504,73 @@ function renderGanttView(html, dates) {
 }
 
 // ─── GANTT DRAG-TO-RESCHEDULE ───
-// Drag state
-let _ganttDragWO = null;
-let _ganttDragOffsetPx = 0;
-let _ganttDragOp = null; // { wo, op, fromDate }
+// ── Drag state ──
+let _ganttDragWO    = null;   // woNumber being moved (WO bar drag)
+let _ganttDragOp    = null;   // { wo, op, fromDate } for op chip drag
+let _ganttResizeWO  = null;   // woNumber being resized (right-edge drag)
+let _ganttDragOffsetPx = 0;   // where within bar user grabbed (for WO move)
+let _ganttScrollTimer = null; // auto-scroll/advance timer handle
 
-// Utility: mouse X → date string (accounts for label col + scroll)
-function _ganttXtoDate(e) {
+const GANTT_LABEL_W = 280;
+
+// ── Utility: mouse clientX → date index in ganttDates[] ──
+function _ganttXtoIdx(clientX) {
   const scroll = document.getElementById('gantt-scroll');
-  if (!scroll) return null;
-  const labelW = 280;
+  if (!scroll) return 0;
   const cellW = state.ganttZoom === 'week' ? 120 : 56;
-  const rect = scroll.getBoundingClientRect();
-  const relX = (e.clientX - rect.left) + scroll.scrollLeft - labelW - _ganttDragOffsetPx;
+  const rect  = scroll.getBoundingClientRect();
+  const relX  = (clientX - rect.left) + scroll.scrollLeft - GANTT_LABEL_W;
   const dates = getGanttDates();
-  const idx = Math.max(0, Math.min(dates.length - 1, Math.floor(relX / cellW)));
-  return dates[idx] || null;
+  return Math.max(0, Math.min(dates.length - 1, Math.floor(relX / cellW)));
+}
+function _ganttXtoDate(clientX) {
+  return getGanttDates()[_ganttXtoIdx(clientX)] || null;
 }
 
-// ── WO BAR drag ──
+// ── Auto-advance week when dragging near the edge ──
+// Returns the number of days the weekStart should shift (negative = back, positive = forward)
+// and also scrolls horizontally if in 4-week view.
+function _ganttEdgeCheck(clientX) {
+  const scroll = document.getElementById('gantt-scroll');
+  if (!scroll) return;
+  const rect = scroll.getBoundingClientRect();
+  const EDGE = 80; // px from either edge
+  const relX = clientX - rect.left;
+
+  if (_ganttScrollTimer) return; // already running
+
+  if (relX < EDGE) {
+    // Near left edge → advance backward 1 week
+    _ganttScrollTimer = setTimeout(() => {
+      _ganttScrollTimer = null;
+      // Shift weekStart back 7 days
+      const d = new Date(state.weekStart + 'T00:00:00');
+      d.setDate(d.getDate() - 7);
+      state.weekStart = d.toISOString().split('T')[0];
+      render();
+    }, 800);
+  } else if (relX > rect.width - EDGE) {
+    // Near right edge → advance forward 1 week
+    _ganttScrollTimer = setTimeout(() => {
+      _ganttScrollTimer = null;
+      const d = new Date(state.weekStart + 'T00:00:00');
+      d.setDate(d.getDate() + 7);
+      state.weekStart = d.toISOString().split('T')[0];
+      render();
+    }, 800);
+  }
+}
+function _ganttEdgeClear() {
+  if (_ganttScrollTimer) { clearTimeout(_ganttScrollTimer); _ganttScrollTimer = null; }
+}
+
+// ══════════════════════════════════════════
+// WO BAR — MOVE (drag whole bar)
+// ══════════════════════════════════════════
 function ganttBarDragStart(e, woNumber, barLeftPx) {
   _ganttDragWO = woNumber;
   _ganttDragOp = null;
+  _ganttResizeWO = null;
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', woNumber);
   const rect = e.currentTarget.getBoundingClientRect();
@@ -3524,69 +3581,142 @@ function ganttBarDragStart(e, woNumber, barLeftPx) {
 function ganttBarDragEnd(e) {
   if (e.currentTarget) e.currentTarget.style.opacity = '';
   _ganttDragWO = null;
+  _ganttEdgeClear();
 }
 
-// Allow WO bar to be dropped anywhere in that WO's rows
-function ganttWODragOver(e, woNumber) {
-  if (_ganttDragWO === woNumber) {
+// ondragover for WO rows + op rows — allows WO bar to be dropped anywhere in its rows
+function ganttWORowOver(e, woNumber) {
+  if (_ganttDragWO === woNumber || _ganttResizeWO === woNumber) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+    _ganttEdgeCheck(e.clientX);
   }
 }
 
-// Drop WO bar → shift WO window + all assignments
+// Drop WO bar → compute offset from where bar started to where it landed, shift everything
 function ganttDropWO(e, woNumber) {
   e.preventDefault();
+  _ganttEdgeClear();
   if (_ganttDragWO !== woNumber) return;
-  const targetDate = _ganttXtoDate(e);
+
+  // Compute target date from raw clientX minus grab offset
+  const rawX = e.clientX - _ganttDragOffsetPx + (state.ganttZoom === 'week' ? 60 : 28); // centre of cell
+  const targetDate = _ganttXtoDate(rawX);
   if (!targetDate) return;
+
   const wo = state.workOrders.find(w => w.woNumber === woNumber);
   if (!wo || !wo.scheduledStart || !wo.scheduledEnd) return;
+
   const origStart = wo.scheduledStart.slice(0,10);
   const origEnd   = wo.scheduledEnd.slice(0,10);
-  const offset = Math.round((new Date(targetDate+'T00:00:00') - new Date(origStart+'T00:00:00')) / 86400000);
+  const offset = Math.round(
+    (new Date(targetDate+'T00:00:00') - new Date(origStart+'T00:00:00')) / 86400000
+  );
   if (offset === 0) return;
-  const shift = (d) => { const dt = new Date(d+'T00:00:00'); dt.setDate(dt.getDate()+offset); return dt.toISOString().split('T')[0]; };
+
+  const shift = d => {
+    const dt = new Date(d+'T00:00:00');
+    dt.setDate(dt.getDate() + offset);
+    return dt.toISOString().split('T')[0];
+  };
+
   wo.scheduledStart = shift(origStart);
   wo.scheduledEnd   = shift(origEnd);
   state.assignments.filter(a => a.woNumber === woNumber).forEach(a => { a.date = shift(a.date); });
+
   _ganttDragWO = null;
   render();
 }
 
-// ── OP CHIP drag ──
+// ══════════════════════════════════════════
+// WO BAR — RESIZE (drag right edge to expand/contract window)
+// ══════════════════════════════════════════
+function ganttResizeDragStart(e, woNumber) {
+  e.stopPropagation(); // prevent bar-move from triggering
+  _ganttResizeWO = woNumber;
+  _ganttDragWO   = null;
+  _ganttDragOp   = null;
+  _ganttDragOffsetPx = 0;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', 'resize:' + woNumber);
+  e.currentTarget.closest('.gantt-bar').style.opacity = '0.7';
+}
+
+function ganttResizeDragEnd(e) {
+  const bar = e.currentTarget.closest ? e.currentTarget.closest('.gantt-bar') : null;
+  if (bar) bar.style.opacity = '';
+  _ganttResizeWO = null;
+  _ganttEdgeClear();
+}
+
+// Drop resize handle → new end date = drop target date
+function ganttDropResize(e, woNumber) {
+  e.preventDefault();
+  _ganttEdgeClear();
+  if (_ganttResizeWO !== woNumber) return;
+
+  const newEnd = _ganttXtoDate(e.clientX);
+  if (!newEnd) return;
+
+  const wo = state.workOrders.find(w => w.woNumber === woNumber);
+  if (!wo || !wo.scheduledStart) return;
+
+  // Don't allow end before start
+  if (newEnd < wo.scheduledStart.slice(0,10)) return;
+
+  wo.scheduledEnd = newEnd;
+  _ganttResizeWO = null;
+  render();
+}
+
+// ══════════════════════════════════════════
+// OP CHIP — MOVE (drag assignment to new date)
+// ══════════════════════════════════════════
 function ganttOpDragStart(e, woNumber, opSeq, fromDate) {
   _ganttDragOp = { wo: woNumber, op: opSeq, fromDate };
   _ganttDragWO = null;
+  _ganttResizeWO = null;
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', 'op');
-  const rect = e.currentTarget.getBoundingClientRect();
-  _ganttDragOffsetPx = e.clientX - rect.left;
+  _ganttDragOffsetPx = 0;
   e.currentTarget.style.opacity = '0.45';
 }
 
 function ganttOpDragEnd(e) {
   if (e.currentTarget) e.currentTarget.style.opacity = '';
   _ganttDragOp = null;
+  _ganttEdgeClear();
 }
 
-// Allow op chip to drop on any cell in that op's row
+// ondragover for individual op day cells
 function ganttOpCellOver(e, woNumber, opSeq) {
   if (_ganttDragOp && _ganttDragOp.wo === woNumber && _ganttDragOp.op === opSeq) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+    _ganttEdgeCheck(e.clientX);
   }
 }
 
-// Drop op chip → move all assignments on fromDate to toDate
+// Drop op chip → move assignments on fromDate to toDate; also expand WO window if needed
 function ganttDropOp(e, woNumber, opSeq, toDate) {
   e.preventDefault();
+  _ganttEdgeClear();
   if (!_ganttDragOp || _ganttDragOp.wo !== woNumber || _ganttDragOp.op !== opSeq) return;
   const fromDate = _ganttDragOp.fromDate;
   if (fromDate === toDate) return;
+
+  // Move assignments
   state.assignments
     .filter(a => a.woNumber === woNumber && a.opSeq === opSeq && a.date === fromDate)
     .forEach(a => { a.date = toDate; });
+
+  // Expand WO window if the new date is outside it
+  const wo = state.workOrders.find(w => w.woNumber === woNumber);
+  if (wo) {
+    if (!wo.scheduledStart || toDate < wo.scheduledStart) wo.scheduledStart = toDate;
+    if (!wo.scheduledEnd   || toDate > wo.scheduledEnd)   wo.scheduledEnd   = toDate;
+  }
+
   _ganttDragOp = null;
   render();
 }
