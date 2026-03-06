@@ -4381,8 +4381,8 @@ function ganttPanelRefresh() {
     aDiv.innerHTML = `<div style="font-size:10px;color:var(--text-muted);font-style:italic;padding:4px 0">None yet</div>`;
   } else {
     aDiv.innerHTML = allA.map(a => {
-      const dayLoad = getEmpLoad ? getEmpLoad(a.employeeName, a.date) : a.hours;
-      const dayAvail = getEmpAvailHours ? getEmpAvailHours(a.employeeName, a.date) : 8;
+      const dayLoad = !isPool && getEmpLoad ? getEmpLoad(a.employeeName, a.date) : a.hours;
+      const dayAvail = !isPool && getEmpAvailHours ? getEmpAvailHours(a.employeeName, a.date) : 0;
       const dayPct = dayAvail > 0 ? Math.min(100, dayLoad / dayAvail * 100) : 0;
       const dayColor = dayPct > 100 ? '#DC3545' : dayPct > 85 ? '#F0AD4E' : '#28A745';
       const isPool = isPoolAssignment(a);
@@ -4394,12 +4394,12 @@ function ganttPanelRefresh() {
         <div style="flex:1;min-width:0">
           <div style="font-size:10px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${displayName}</div>
           <div style="font-size:9px;color:var(--text-secondary)">${fmtDate(a.date)} · ${a.hours}h</div>
-          <div style="display:flex;align-items:center;gap:4px;margin-top:2px">
+          ${isPool ? '' : `<div style="display:flex;align-items:center;gap:4px;margin-top:2px">
             <div style="flex:1;height:3px;background:var(--cap-bar-bg);border-radius:2px;overflow:hidden">
               <div style="height:100%;width:${dayPct}%;background:${dayColor}"></div>
             </div>
             <span style="font-size:8px;color:${dayColor}">${dayLoad.toFixed(1)}/${dayAvail}h</span>
-          </div>
+          </div>`}
         </div>
         <button onclick="ganttPanelRemove('${a.id}')" style="background:none;border:none;color:#DC354566;cursor:pointer;font-size:14px;padding:2px 4px;line-height:1">×</button>
       </div>`;
@@ -5740,7 +5740,11 @@ function render() {
             <td style="text-align:center">${op.estHours}</td>
             <td>${depDisplay}</td>
             <td style="text-align:center"><span class="badge" style="background:${stColor}22;color:${stColor};border:1px solid ${stColor}44">${stText}</span></td>
-            <td>${a ? a.employeeName + ' (' + fmtDate(a.date) + ')' : '—'}</td>
+            <td>${(() => {
+              const opAssigns = state.assignments.filter(x => x.woNumber === wo.woNumber && x.opSeq === op.opSeq);
+              if (!opAssigns.length) return '—';
+              return opAssigns.map(x => getDisplayName(x) + ' (' + fmtDate(x.date) + ')').join('<br>');
+            })()}</td>
           </tr>`;
         });
         html += `</tbody></table></div>`;
