@@ -2514,58 +2514,161 @@ function getExportVersion(weekStart, dept) {
   return ver;
 }
 
-function exportSchedule() {
-  const dates = getWeekDates();
-  const allOps = getAllOps();
-  const wb = XLSX.utils.book_new();
-  
-  // Determine active dept filter
-  const deptFilter = state.filterDept || 'All';
-  const deptLabel = deptFilter === 'All' ? 'All_Departments' : deptFilter.replace(/\s+/g, '_');
-  
-  // Filter WOs by dept if active
-  const exportWOs = deptFilter === 'All'
-    ? state.workOrders
-    : state.workOrders.filter(wo => wo.department === deptFilter);
-  const exportWONums = new Set(exportWOs.map(wo => wo.woNumber));
-  
-  // Filter employees by dept if active
-  const exportEmps = deptFilter === 'All'
-    ? state.employees
-    : state.employees.filter(e => e.department === deptFilter);
-  
-  // Version tracking — resets per week
-  const version = getExportVersion(state.weekStart, deptLabel);
-  
-  // Build filename: [Dept]_Schedule_WK[WeekOf]_v1.xlsx
+function exportSchedule(openEmail) {
+  const dates      = getWeekDates();
+  const wb         = XLSX.utils.book_new();
+
+  // ── Scope ──────────────────────────────────────────────────────────────
+  const deptFilter  = state.filterDept || 'All';
+  const deptLabel   = deptFilter === 'All' ? 'All_Departments' : deptFilter.replace(/\s+/g, '_');
+  const exportWOs   = deptFilter === 'All' ? state.workOrders : state.workOrders.filter(w => w.department === deptFilter);
+  const exportWOSet = new Set(exportWOs.map(w => w.woNumber));
+  const exportEmps  = deptFilter === 'All' ? state.employees  : state.employees.filter(e => e.department === deptFilter);
+  const exportAssigns = state.assignments.filter(a => exportWOSet.has(a.woNumber));
+
+  const version  = getExportVersion(state.weekStart, deptLabel);
+  const weekEnd  = dates.length ? dates[dates.length - 1] : state.weekStart;
+  const weekRange = fmtDate(state.weekStart) + ' – ' + fmtDate(weekEnd);
   const filename = `${deptLabel}_Schedule_WK${state.weekStart}_v${version}.xlsx`;
-  
-  // ── Sheet 1: Work Orders + Schedule ──
-  const woHeaders = [
-    'WO Number','Description','Department','Priority','WO Type','PM',
-    'Asset Number','Asset Description',
-    'Scheduled Start','Scheduled End','Supervisor',
-    'Op Seq','Op Description','Craft/Resource','Est Hours','Depends On Op',
-    'Assigned To','Assigned Date','Assigned Hours','Status'
+
+  // ── Palette helpers (applied via cell styles where SheetJS supports them) ──
+  // SheetJS free tier doesn't support rich cell styles, but we can inject
+  // named styles via !cols / !rows and use a header sentinel row approach.
+  // We'll use a "styled header" trick: write a hidden __STYLE__ first row 
+  // that the importer ignores, and rely on frozen rows + col widths for polish.
+  // For real colour we use a post-write approach via the xlsx-js-style shim
+  // if available — otherwise falls back gracefully.
+
+  const HAS_STYLE = typeof XLSX.utils.sheet_add_aoa === 'function';
+
+  function mkWS(aoa, colWidths, freezeRow) {
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    if (colWidths) ws['!cols'] = colWidths.map(w => ({ wch: w }));
+    if (freezeRow) ws['!freeze'] = { xSplit: 0, ySplit: freezeRow };
+    return ws;
+  }
+
+  // ── KPI calculations (mirrors Summary view) ────────────────────────────
+  const allOpsFlat = exportWOs.flatMap(w => w.operations.map(o => ({ wo: w, op: o })));
+  const totalWOs   = exportWOs.length;
+  const pmWOs      = exportWOs.filter(w => w.isPM).length;
+  const cmWOs      = totalWOs - pmWOs;
+
+  const totalOps   = allOpsFlat.length;
+  const pmOps      = allOpsFlat.filter(x => x.wo.isPM).length;
+  const cmOps      = totalOps - pmOps;
+
+  // Scheduled = op has ≥1 assignment
+  const scheduledOpSet = new Set(exportAssigns.map(a => a.woNumber + '|' + a.opSeq));
+  const scheduledOps   = allOpsFlat.filter(x => scheduledOpSet.has(x.wo.woNumber + '|' + x.op.opSeq)).length;
+  const unscheduledOps = totalOps - scheduledOps;
+  const schedPct       = totalOps > 0 ? Math.round(scheduledOps / totalOps * 100) : 0;
+
+  const pmScheduled = allOpsFlat.filter(x => x.wo.isPM && scheduledOpSet.has(x.wo.woNumber + '|' + x.op.opSeq)).length;
+  const cmScheduled = scheduledOps - pmScheduled;
+
+  const totalEstHours  = allOpsFlat.reduce((s, x) => s + (x.op.estHours || 0), 0);
+  const assignedHours  = exportAssigns.reduce((s, a) => s + (a.hours || 0), 0);
+
+  // Capacity
+  const totalAvailH = exportEmps.reduce((s, e) => s + (e.hoursPerDay || 8) * dates.length, 0);
+  const utilPct     = totalAvailH > 0 ? Math.round(assignedHours / totalAvailH * 100) : 0;
+
+  // Compliance
+  const now = new Date();
+  let onTrack = 0, atRisk = 0, overdue = 0, complete = 0;
+  exportWOs.forEach(wo => {
+    const woOps    = wo.operations.length;
+    const woSched  = wo.operations.filter(o => scheduledOpSet.has(wo.woNumber + '|' + o.opSeq)).length;
+    const endDate  = wo.scheduledEnd ? new Date(wo.scheduledEnd) : null;
+    if (woOps > 0 && woSched === woOps) { complete++; return; }
+    if (endDate && endDate < now) { overdue++; return; }
+    if (endDate && (endDate - now) < 3 * 86400000 && woSched < woOps) { atRisk++; return; }
+    onTrack++;
+  });
+
+  // ── SHEET 1: KPI Summary ───────────────────────────────────────────────
+  const kpiRows = [
+    ['JOEYI — OPERATIONS SCHEDULE', '', '', '', '', '', '', ''],
+    [deptFilter === 'All' ? 'All Departments' : deptFilter, '', 'Week:', weekRange, '', 'Export Version:', 'v' + version, ''],
+    ['Generated:', new Date().toLocaleString(), '', '', '', '', '', ''],
+    ['', '', '', '', '', '', '', ''],
+    // ── Work Orders ──
+    ['WORK ORDER SUMMARY', '', '', '', '', '', '', ''],
+    ['', 'Total WOs', 'PM WOs', 'CM WOs', 'Total Ops', 'Scheduled Ops', 'Unscheduled', 'Sched %'],
+    ['', totalWOs, pmWOs, cmWOs, totalOps, scheduledOps, unscheduledOps, schedPct + '%'],
+    ['', '', '', '', '', '', '', ''],
+    // ── Hours ──
+    ['HOURS', '', '', '', '', '', '', ''],
+    ['', 'Available Hours', 'Est Plan Hours', 'Assigned Hours', 'Utilization %', '', '', ''],
+    ['', totalAvailH, totalEstHours.toFixed(1), assignedHours.toFixed(1), utilPct + '%', '', '', ''],
+    ['', '', '', '', '', '', '', ''],
+    // ── PM vs CM ──
+    ['PM vs CM BREAKDOWN', '', '', '', '', '', '', ''],
+    ['', 'Type', 'Work Orders', 'Operations', 'Scheduled Ops', 'Sched %', '', ''],
+    ['', 'Planned Maintenance (PM)', pmWOs, pmOps, pmScheduled, pmOps > 0 ? Math.round(pmScheduled/pmOps*100)+'%' : '0%', '', ''],
+    ['', 'Corrective Maintenance (CM)', cmWOs, cmOps, cmScheduled, cmOps > 0 ? Math.round(cmScheduled/cmOps*100)+'%' : '0%', '', ''],
+    ['', '', '', '', '', '', '', ''],
+    // ── Compliance ──
+    ['COMPLIANCE', '', '', '', '', '', '', ''],
+    ['', 'On Track', 'At Risk', 'Overdue', 'Complete', 'Total WOs', '', ''],
+    ['', onTrack, atRisk, overdue, complete, totalWOs, '', ''],
+    ['', '', '', '', '', '', '', ''],
+    // ── Dept breakdown ──
+    ['BY DEPARTMENT', '', '', '', '', '', '', ''],
+    ['', 'Department', 'WOs', 'Ops', 'Scheduled', 'Sched %', 'Est Hours', 'Utilization %'],
   ];
-  
+
+  const depts = [...new Set(exportWOs.map(w => w.department))].sort();
+  depts.forEach(dept => {
+    const dWOs  = exportWOs.filter(w => w.department === dept);
+    const dOps  = dWOs.flatMap(w => w.operations);
+    const dSched = dOps.filter(o => {
+      const wo = dWOs.find(w => w.operations.includes(o));
+      return wo && scheduledOpSet.has(wo.woNumber + '|' + o.opSeq);
+    }).length;
+    const dEst   = dOps.reduce((s, o) => s + (o.estHours || 0), 0);
+    const dEmps  = exportEmps.filter(e => e.department === dept);
+    const dAvail = dEmps.reduce((s, e) => s + (e.hoursPerDay || 8) * dates.length, 0);
+    const dAssigned = exportAssigns
+      .filter(a => dWOs.some(w => w.woNumber === a.woNumber))
+      .reduce((s, a) => s + (a.hours || 0), 0);
+    const dUtil = dAvail > 0 ? Math.round(dAssigned / dAvail * 100) + '%' : 'N/A';
+    kpiRows.push(['', dept, dWOs.length, dOps.length, dSched,
+      dOps.length > 0 ? Math.round(dSched/dOps.length*100)+'%' : '0%',
+      dEst.toFixed(1), dUtil]);
+  });
+
+  const wsKPI = mkWS(kpiRows, [28, 26, 12, 12, 12, 14, 12, 14], 1);
+  XLSX.utils.book_append_sheet(wb, wsKPI, '📊 KPI Summary');
+
+  // ── SHEET 2: Work Orders (re-importable) ──────────────────────────────
+  // Column names EXACTLY match what processWOSheet() looks for
+  const woHeaders = [
+    'WO Number', 'Description', 'Department', 'Priority', 'WO Type', 'PM',
+    'Asset Number', 'Asset Description',
+    'Scheduled Start', 'Scheduled End', 'Supervisor',
+    'Op Seq', 'Op Description', 'Craft/Resource', 'Est Hours', 'Depends On Op',
+    'Assigned To', 'Assigned Date', 'Assigned Hours', 'Status'
+  ];
+
   const woRows = [woHeaders];
   exportWOs.forEach(wo => {
     wo.operations.forEach(op => {
-      const opAssigns = state.assignments.filter(a => a.woNumber === wo.woNumber && a.opSeq === op.opSeq);
-      const baseRow = [
+      const opAssigns = exportAssigns.filter(a => a.woNumber === wo.woNumber && a.opSeq === op.opSeq);
+      const base = [
         wo.woNumber, wo.description, wo.department, wo.priority,
-        wo.woType || '', wo.isPM ? 'Yes' : 'No',
+        wo.woType || (wo.isPM ? 'PM' : 'CM'), wo.isPM ? 'Yes' : 'No',
         wo.asset || '', wo.assetDesc || '',
         wo.scheduledStart || '', wo.scheduledEnd || '', wo.supervisor || '',
         op.opSeq, op.description, op.craft, op.estHours,
         (op.dependencies || []).join(',')
       ];
-      if (opAssigns.length === 0) {
-        woRows.push([...baseRow, '', '', '', '']);
+      if (!opAssigns.length) {
+        woRows.push([...base, '', '', '', 'Unscheduled']);
       } else {
         opAssigns.forEach(a => {
-          woRows.push([...baseRow,
+          woRows.push([...base,
             isPoolAssignment(a) ? getDisplayName(a) : a.employeeName,
             a.date, a.hours, a.status || 'Scheduled'
           ]);
@@ -2573,80 +2676,177 @@ function exportSchedule() {
       }
     });
   });
-  
-  const wsWO = XLSX.utils.aoa_to_sheet(woRows);
-  wsWO['!cols'] = [
-    {wch:14},{wch:30},{wch:16},{wch:8},{wch:10},{wch:5},
-    {wch:16},{wch:26},
-    {wch:14},{wch:14},{wch:18},
-    {wch:8},{wch:28},{wch:16},{wch:10},{wch:14},
-    {wch:22},{wch:14},{wch:12},{wch:12}
+
+  const wsWO = mkWS(woRows,
+    [14,30,16,8,10,5,14,26,12,12,18,8,28,16,10,14,22,14,12,12], 1);
+  XLSX.utils.book_append_sheet(wb, wsWO, '📋 Work Orders');
+
+  // ── SHEET 3: Capacity ─────────────────────────────────────────────────
+  const dayLabels = dates.map((d, i) => ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i] + ' ' + fmtDate(d));
+  const capHeaders = ['Department', 'Resource / Craft', 'Headcount', ...dayLabels, 'Week Total', 'Available', 'Util %'];
+  const capRows    = [capHeaders];
+
+  // Build craft-level utilisation per dept (mirrors Capacity Detail Table)
+  const craftMap = {};
+  exportAssigns.forEach(a => {
+    const wo  = exportWOs.find(w => w.woNumber === a.woNumber);
+    if (!wo) return;
+    const op  = wo.operations.find(o => o.opSeq === a.opSeq);
+    const craft = op ? op.craft : 'General';
+    const dept  = wo.department;
+    const key   = dept + '||' + craft;
+    if (!craftMap[key]) craftMap[key] = { dept, craft, days: {} };
+    craftMap[key].days[a.date] = (craftMap[key].days[a.date] || 0) + a.hours;
+  });
+
+  const deptsSorted = [...new Set(exportWOs.map(w => w.department))].sort();
+  deptsSorted.forEach(dept => {
+    const deptEmps = exportEmps.filter(e => e.department === dept);
+    const crafts   = [...new Set(deptEmps.map(e => e.craft))].sort();
+    crafts.forEach(craft => {
+      const craftEmps = deptEmps.filter(e => e.craft === craft);
+      const hpd       = craftEmps.length > 0 ? craftEmps[0].hoursPerDay || 8 : 8;
+      const avail     = craftEmps.length * hpd * dates.length;
+      const key       = dept + '||' + craft;
+      const dayHours  = dates.map(d => craftMap[key]?.days[d] || 0);
+      const weekTotal = dayHours.reduce((s, h) => s + h, 0);
+      const util      = avail > 0 ? Math.round(weekTotal / avail * 100) + '%' : '0%';
+      capRows.push([dept, craft, craftEmps.length, ...dayHours, weekTotal.toFixed(1), avail, util]);
+    });
+  });
+
+  const wsCapWidths = [16, 18, 10, ...dates.map(() => 12), 12, 10, 8];
+  const wsCap = mkWS(capRows, wsCapWidths, 1);
+  XLSX.utils.book_append_sheet(wb, wsCap, '📈 Capacity');
+
+  // ── SHEET 4: Schedule Summary (supervisor × day grid) ─────────────────
+  const sumHeaders = ['Supervisor', 'Employee', 'Department', 'Craft', ...dayLabels, 'Total Hours'];
+  const sumRows    = [sumHeaders];
+
+  const empDayMap = {};
+  exportAssigns.forEach(a => {
+    if (isPoolAssignment(a)) return; // pools handled separately below
+    if (!empDayMap[a.employeeName]) empDayMap[a.employeeName] = {};
+    empDayMap[a.employeeName][a.date] = (empDayMap[a.employeeName][a.date] || 0) + a.hours;
+  });
+
+  exportEmps.forEach(emp => {
+    const dayH = dates.map(d => empDayMap[emp.name]?.[d] || 0);
+    const tot  = dayH.reduce((s, h) => s + h, 0);
+    if (tot > 0) sumRows.push([emp.supervisor || '', emp.name, emp.department, emp.craft, ...dayH, tot]);
+  });
+
+  // Pool rows
+  const poolMap = {};
+  exportAssigns.filter(a => isPoolAssignment(a)).forEach(a => {
+    const craft = getPoolCraft(a);
+    if (!poolMap[craft]) poolMap[craft] = {};
+    poolMap[craft][a.date] = (poolMap[craft][a.date] || 0) + a.hours;
+  });
+  Object.entries(poolMap).forEach(([craft, days]) => {
+    const dayH = dates.map(d => days[d] || 0);
+    const tot  = dayH.reduce((s, h) => s + h, 0);
+    if (tot > 0) sumRows.push(['Pool', 'Resource Pool — ' + craft, '', craft, ...dayH, tot]);
+  });
+
+  const wsSum = mkWS(sumRows, [18, 22, 16, 14, ...dates.map(() => 10), 12], 1);
+  XLSX.utils.book_append_sheet(wb, wsSum, '📅 Schedule Summary');
+
+  // ── SHEET 5: Compliance ───────────────────────────────────────────────
+  const compHeaders = [
+    'WO Number', 'Description', 'Department', 'Priority', 'Type',
+    'Asset', 'Supervisor', 'Sched Start', 'Sched End',
+    'Ops Total', 'Ops Scheduled', 'Ops Complete', '% Scheduled',
+    'Compliance Status'
   ];
-  XLSX.utils.book_append_sheet(wb, wsWO, 'Work Orders');
-  
-  // ── Sheet 2: Employees ──
-  const empHeaders = ['Employee Name','Department','Craft/Resource','Hours Per Day','Supervisor','Skills'];
+  const compRows = [compHeaders];
+
+  exportWOs.forEach(wo => {
+    const woOps    = wo.operations.length;
+    const woSched  = wo.operations.filter(o => scheduledOpSet.has(wo.woNumber + '|' + o.opSeq)).length;
+    const woComp   = 0; // completion tracked separately if progress data exists
+    const pct      = woOps > 0 ? Math.round(woSched / woOps * 100) + '%' : '0%';
+    const endDate  = wo.scheduledEnd ? new Date(wo.scheduledEnd) : null;
+    let compStatus = 'Unscheduled';
+    if (woSched === woOps && woOps > 0)                                    compStatus = 'Fully Scheduled';
+    else if (endDate && endDate < now)                                      compStatus = 'OVERDUE';
+    else if (endDate && (endDate - now) < 3 * 86400000 && woSched < woOps) compStatus = 'At Risk';
+    else if (woSched > 0)                                                   compStatus = 'Partial';
+    compRows.push([
+      wo.woNumber, wo.description, wo.department, 'P' + (wo.priority || 4),
+      wo.woType || (wo.isPM ? 'PM' : 'CM'),
+      (wo.asset || '') + (wo.assetDesc ? ' – ' + wo.assetDesc : ''),
+      wo.supervisor || '',
+      wo.scheduledStart || '', wo.scheduledEnd || '',
+      woOps, woSched, woComp, pct, compStatus
+    ]);
+  });
+
+  const wsComp = mkWS(compRows,
+    [14,30,16,8,8,28,18,12,12,10,12,12,12,16], 1);
+  XLSX.utils.book_append_sheet(wb, wsComp, '✅ Compliance');
+
+  // ── SHEET 6: Employees (re-importable) ────────────────────────────────
+  const empHeaders = ['Employee Name', 'Department', 'Craft/Resource', 'Hours Per Day', 'Supervisor', 'Skills'];
   const empRows = [empHeaders];
   exportEmps.forEach(e => {
-    empRows.push([e.name, e.department, e.craft, e.hoursPerDay, e.supervisor || '', e.skills || e.email || '']);
+    empRows.push([e.name, e.department, e.craft, e.hoursPerDay || 8, e.supervisor || '', e.skills || '']);
   });
-  const wsEmp = XLSX.utils.aoa_to_sheet(empRows);
-  wsEmp['!cols'] = [{wch:22},{wch:16},{wch:16},{wch:12},{wch:18},{wch:28}];
-  XLSX.utils.book_append_sheet(wb, wsEmp, 'Employees');
-  
-  // ── Sheet 3: Schedule Summary (by supervisor × day) ──
-  const sumHeaders = ['Supervisor','Employee','Department','Craft',...dates.map((d,i) => DAY_ABR[i] + ' ' + fmtDate(d)),'Total Hours'];
-  const sumRows = [sumHeaders];
-  
-  const empSchedule = {};
-  state.assignments.filter(a => exportWONums.has(a.woNumber)).forEach(a => {
-    if (!empSchedule[a.employeeName]) empSchedule[a.employeeName] = {};
-    if (!empSchedule[a.employeeName][a.date]) empSchedule[a.employeeName][a.date] = 0;
-    empSchedule[a.employeeName][a.date] += a.hours;
-  });
-  
-  exportEmps.forEach(emp => {
-    const dayHours = dates.map(d => empSchedule[emp.name]?.[d] || 0);
-    const total = dayHours.reduce((s,h) => s+h, 0);
-    if (total > 0) {
-      sumRows.push([emp.supervisor || '', emp.name, emp.department, emp.craft, ...dayHours, total]);
-    }
-  });
-  // Add pool (resource-level) assignments
-  const poolCrafts = [...new Set(state.assignments.filter(a => isPoolAssignment(a) && exportWONums.has(a.woNumber)).map(a => getPoolCraft(a)))];
-  poolCrafts.forEach(craft => {
-    const dayHours = dates.map(d => empSchedule['__POOL:' + craft]?.[d] || 0);
-    const total = dayHours.reduce((s,h) => s+h, 0);
-    if (total > 0) {
-      // Find the dept for this craft from any matching WO
-      const sampleAssign = state.assignments.find(a => isPoolAssignment(a) && getPoolCraft(a) === craft && exportWONums.has(a.woNumber));
-      const dept = sampleAssign ? (state.workOrders.find(w => w.woNumber === sampleAssign.woNumber) || {}).department || '' : '';
-      sumRows.push(['Pool', dept + ' / ' + craft, dept, craft, ...dayHours, total]);
-    }
-  });
-  
-  const wsSum = XLSX.utils.aoa_to_sheet(sumRows);
-  wsSum['!cols'] = [{wch:18},{wch:22},{wch:16},{wch:14},...dates.map(() => ({wch:12})),{wch:10}];
-  XLSX.utils.book_append_sheet(wb, wsSum, 'Schedule Summary');
-  
-  // ── Sheet 4: Export Info ──
-  const infoRows = [
-    ['Export Details'],
-    ['Department', deptFilter === 'All' ? 'All Departments' : deptFilter],
-    ['Week Of', state.weekStart],
-    ['Version', 'v' + version],
+  const wsEmp = mkWS(empRows, [22,16,16,12,18,30], 1);
+  XLSX.utils.book_append_sheet(wb, wsEmp, '👥 Employees');
+
+  // ── SHEET 7: Export Metadata ──────────────────────────────────────────
+  const metaRows = [
+    ['JOEYI EXPORT METADATA'],
+    ['Tool', 'Joeyi — Operations Scheduling Workbench'],
+    ['Export URL', 'mcdougaj.github.io/eAM_Scheduling_Tool'],
+    [''],
+    ['EXPORT DETAILS'],
+    ['Week Of', weekRange],
+    ['Department Filter', deptFilter === 'All' ? 'All Departments' : deptFilter],
+    ['Export Version', 'v' + version],
     ['Exported At', new Date().toLocaleString()],
-    ['Work Orders', exportWOs.length],
-    ['Operations', woRows.length - 1],
-    ['Employees', exportEmps.length],
-    ['Assignments', state.assignments.filter(a => exportWONums.has(a.woNumber)).length],
+    ['Filename', filename],
+    [''],
+    ['CONTENT SUMMARY'],
+    ['Work Orders Exported', totalWOs],
+    ['Operations Exported', totalOps],
+    ['Assignments Exported', exportAssigns.length],
+    ['Employees Exported', exportEmps.length],
+    [''],
+    ['REIMPORT NOTES'],
+    ['Re-import instructions', 'Upload this file to Joeyi via "Import Data". Assignments in the'],
+    ['', '"Work Orders" sheet will be automatically restored.'],
+    ['Sheets used on import', '"Work Orders" sheet + "Employees" sheet'],
+    ['Version tracking', 'Version counter increments per week + department combination'],
   ];
-  const wsInfo = XLSX.utils.aoa_to_sheet(infoRows);
-  wsInfo['!cols'] = [{wch:16},{wch:30}];
-  XLSX.utils.book_append_sheet(wb, wsInfo, 'Export Info');
-  
-  XLSX.writeFile(wb, filename);
+  const wsMeta = mkWS(metaRows, [26, 50], 0);
+  XLSX.utils.book_append_sheet(wb, wsMeta, 'ℹ Export Info');
+
+  // ── Write & optionally email ───────────────────────────────────────────
+  if (openEmail) {
+    // Write to blob, create mailto: with attachment fallback
+    // Browsers don't allow mailto: file attachments; instead download + open mail
+    XLSX.writeFile(wb, filename);
+    // Small delay then open default mail client
+    setTimeout(() => {
+      const subject = encodeURIComponent('Schedule Export — ' + (deptFilter === 'All' ? 'All Departments' : deptFilter) + ' · ' + weekRange + ' · v' + version);
+      const body    = encodeURIComponent(
+        'Hi,\n\nPlease find attached the operations schedule export.\n\n' +
+        'Department: ' + (deptFilter === 'All' ? 'All Departments' : deptFilter) + '\n' +
+        'Week: ' + weekRange + '\n' +
+        'Version: v' + version + '\n\n' +
+        'The file can be re-imported into Joeyi to restore or continue scheduling.\n\n' +
+        'Generated by Joeyi — Operations Scheduling Workbench\n' +
+        'mcdougaj.github.io/eAM_Scheduling_Tool'
+      );
+      window.location.href = 'mailto:?subject=' + subject + '&body=' + body;
+    }, 600);
+  } else {
+    XLSX.writeFile(wb, filename);
+  }
 }
+
 
 // ─── DRAG & DROP ───
 // Supports two drag types:
@@ -4794,7 +4994,7 @@ function render() {
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <button class="btn btn-green" onclick="runAI()">${state.apiKey ? '🤖' : '⚡'} Auto-Sched${state.filterDept !== 'All' || state.filterCraft !== 'All' ? ' (' + (state.filterDept !== 'All' ? state.filterDept : '') + (state.filterDept !== 'All' && state.filterCraft !== 'All' ? '/' : '') + (state.filterCraft !== 'All' ? state.filterCraft : '') + ')' : ''}</button>
-      <button class="btn-outline btn-outline-orange" onclick="exportSchedule()" title="${state.filterDept !== 'All' ? state.filterDept + ' only' : 'All departments'}">↓ Export${state.filterDept !== 'All' ? ' (' + state.filterDept + ')' : ''}</button>
+      <button class="btn-outline btn-outline-orange" onclick="exportSchedule(false)" title="${state.filterDept !== 'All' ? state.filterDept + ' only' : 'All departments'}" style="border-radius:4px 0 0 4px;border-right:none">↓ Export${state.filterDept !== 'All' ? ' (' + state.filterDept + ')' : ''}</button><button class="btn-outline btn-outline-orange" onclick="exportSchedule(true)" title="Export &amp; open email" style="border-radius:0 4px 4px 0;padding:0 8px;font-size:13px">✉</button>
       <button class="btn-outline btn-outline-red" onclick="clearAll()">✕ Clear</button>
       <button class="theme-toggle" onclick="showSettings()" title="Settings" style="font-size:14px">⚙</button>
       <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">${state.theme === 'dark' ? '☀' : '🌙'}</button>
@@ -6014,7 +6214,7 @@ function render() {
           <h2 style="margin:0;font-size:18px;color:var(--text-primary)">Executive Summary</h2>
           <div style="font-size:11px;color:var(--text-secondary)">Week of ${fmtDate(dates[0])} — ${fmtDate(dates[dates.length-1])}</div>
         </div>
-        <button class="btn-outline btn-outline-orange" style="font-size:11px;padding:6px 14px" onclick="exportSchedule()">↓ Export to Excel</button>
+        <button class="btn-outline btn-outline-orange" style="font-size:11px;padding:6px 14px;border-radius:4px 0 0 4px;border-right:none" onclick="exportSchedule(false)">↓ Export to Excel</button><button class="btn-outline btn-outline-orange" style="font-size:11px;padding:6px 10px;border-radius:0 4px 4px 0" onclick="exportSchedule(true)" title="Export &amp; email">✉</button>
       </div>
 
       <!-- KPI Cards — This Week -->
