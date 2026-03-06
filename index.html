@@ -5736,20 +5736,13 @@ function render() {
 
   // ─── CAPACITY VIEW ───
   if (state.view === 'capacity') {
-    const totalSched = state.assignments.reduce((s,a) => s+a.hours, 0);
-    const totalAvail = dates.length * Object.values(state.craftConfig).reduce((s,c) => s + c.headcount*c.hoursPerDay, 0);
+    // Wrap capacity in a full-width column container
+    html += `<div style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0;width:100%">`;
 
     // Tab bar
     html += `<div class="capacity-tabs">
       <button class="cap-tab ${state.capacityTab==='heatmap'?'active':''}" onclick="state.capacityTab='heatmap';render()">🔥 Heat Map</button>
       <button class="cap-tab ${state.capacityTab==='table'?'active':''}" onclick="state.capacityTab='table';render()">📋 Detail Table</button>
-    </div>`;
-
-    // KPI summary always shown
-    html += `<div style="display:flex;gap:12px;padding:12px 20px;background:var(--bg-surface);border-bottom:1px solid var(--border);flex-shrink:0">
-      <div class="stat-card" style="flex:1;padding:10px 14px"><div class="stat-value" style="font-size:20px">${totalSched.toFixed(0)}</div><div class="stat-label">Scheduled Hours</div></div>
-      <div class="stat-card" style="flex:1;padding:10px 14px"><div class="stat-value" style="font-size:20px">${totalAvail}</div><div class="stat-label">Available Hours</div></div>
-      <div class="stat-card" style="flex:1;padding:10px 14px"><div class="stat-value" style="font-size:20px;color:${totalAvail>0&&(totalSched/totalAvail)>1?'#DC3545':(totalSched/totalAvail)>0.9?'#F0AD4E':'#28A745'}">${totalAvail>0?((totalSched/totalAvail)*100).toFixed(0)+'%':'N/A'}</div><div class="stat-label">Utilization</div></div>
     </div>`;
 
     if (state.capacityTab === 'heatmap') {
@@ -5858,6 +5851,7 @@ function render() {
     });
     html += `</div>`;
     } // end else (detail table tab)
+    html += `</div>`; // end capacity column wrapper
   }
 
   // ─── EXECUTIVE SUMMARY VIEW ───
