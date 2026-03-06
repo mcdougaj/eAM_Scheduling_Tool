@@ -571,6 +571,7 @@ function processWOSheet(rows) {
   // Group rows by WO number, carrying forward header info
   const woMap = {};
   const importedAssignments = [];
+  const assignDedupSet = new Set();
   let lastWO = null;
   let lastWOData = {};
   
@@ -643,15 +644,29 @@ function processWOSheet(rows) {
       const assignedTo = COL.assignedTo ? String(row[COL.assignedTo] || '').trim() : '';
       const assignedDate = COL.assignedDate ? formatDateVal(row[COL.assignedDate]) : '';
       if (assignedTo && assignedDate) {
-        importedAssignments.push({
-          id: uid(),
-          woNumber: lastWO,
-          opSeq: opSeq,
-          employeeName: assignedTo,
-          date: assignedDate,
-          hours: COL.assignedHours ? (parseFloat(row[COL.assignedHours]) || (COL.estHours ? (parseFloat(row[COL.estHours]) || 1) : 1)) : (COL.estHours ? (parseFloat(row[COL.estHours]) || 1) : 1),
-          status: COL.status ? String(row[COL.status] || 'Scheduled') : 'Scheduled'
-        });
+        // Normalize pool label back to internal format on re-import
+        // e.g. "Mechanical / Mechanic" → "__POOL:Mechanic"
+        let empName = assignedTo;
+        const poolMatch = assignedTo.match(/^(.+)\s*\/\s*(.+)$/);
+        if (poolMatch) {
+          // Check if this is a dept/craft pool label (not a real person)
+          const craftPart = poolMatch[2].trim();
+          const isRealPerson = (state.employees || []).some(e => e.name === assignedTo);
+          if (!isRealPerson) empName = '__POOL:' + craftPart;
+        }
+        const dedupKey = lastWO + '|' + opSeq + '|' + empName + '|' + assignedDate;
+        if (!assignDedupSet.has(dedupKey)) {
+          assignDedupSet.add(dedupKey);
+          importedAssignments.push({
+            id: uid(),
+            woNumber: lastWO,
+            opSeq: opSeq,
+            employeeName: empName,
+            date: assignedDate,
+            hours: COL.assignedHours ? (parseFloat(row[COL.assignedHours]) || (COL.estHours ? (parseFloat(row[COL.estHours]) || 1) : 1)) : (COL.estHours ? (parseFloat(row[COL.estHours]) || 1) : 1),
+            status: COL.status ? String(row[COL.status] || 'Scheduled') : 'Scheduled'
+          });
+        }
       }
     }
   });
