@@ -3473,13 +3473,16 @@ function renderGanttView(html, dates) {
           </div>
         </div>`);
 
-      // Day cells (tinted in bar range)
+      // Day cells (tinted in bar range) — each cell must accept WO resize/move drops
       html += ganttDates.map((d,i) => {
         const isWE  = [0,6].includes(new Date(d+'T00:00:00').getDay());
         const isTod = d === today;
         const inB   = ws&&we&&d>=ws&&d<=we;
         const isMon = new Date(d+'T00:00:00').getDate()===1;
-        return `<div style="width:${cellW}px;flex-shrink:0;height:${WO_H}px;box-sizing:border-box;
+        return `<div
+          ondragover="ganttWORowOver(event,'${wo.woNumber}')"
+          ondrop="ganttWORowDrop(event,'${wo.woNumber}')"
+          style="width:${cellW}px;flex-shrink:0;height:${WO_H}px;box-sizing:border-box;
           border-right:${isMon&&i>0?'2px solid var(--accent)':'1px solid var(--border)'};
           border-bottom:1px solid var(--border);
           background:${isTod?'var(--accent-glow)':inB?barColor+'15':isWE?'var(--bg-surface)':'var(--cell-bg)'}"></div>`;
@@ -3608,6 +3611,7 @@ function renderGanttView(html, dates) {
               ondragend="ganttOpBarDragEnd(event)"
               ondragover="event.stopPropagation();ganttOpRowOver(event,'${wo.woNumber}',${op.opSeq})"
               ondrop="event.stopPropagation();ganttOpRowDrop(event,'${wo.woNumber}',${op.opSeq})"
+              onclick="event.stopPropagation();ganttHoursOpen(event,'${wo.woNumber}',${op.opSeq})"
               title="Op${op.opSeq}: ${op.description}&#10;${op.craft} · ${op.estHours}h est · ${totalHrs}h scheduled&#10;${opStart?fmtDate(opStart)+'→'+fmtDate(opEnd):'No dates'}&#10;◁ left/▷ right to resize · drag to move"
               style="position:absolute;top:4px;
                 left:${barLeft}px;width:${barWid}px;height:${OP_H-8}px;
@@ -4056,6 +4060,188 @@ function _autoExpandWO(woNumber, newStart, newEnd) {
   const we = wo.scheduledEnd   ? wo.scheduledEnd.slice(0,10)   : null;
   if (newStart && (!ws || newStart < ws)) wo.scheduledStart = newStart;
   if (newEnd   && (!we || newEnd   > we)) wo.scheduledEnd   = newEnd;
+}
+
+
+// ══════════════════════════════════════════════════════════
+// OP HOURS EDITOR POPUP
+// Click op bar → popup shows all assignments, editable hours
+// ══════════════════════════════════════════════════════════
+
+let _ghpWO = null, _ghpOp = null; // current popup context
+
+function ganttHoursOpen(e, woNumber, opSeq) {
+  _ghpWO = woNumber; _ghpOp = opSeq;
+  const popup = document.getElementById('gantt-hours-popup');
+  if (!popup) return;
+
+  const wo = state.workOrders.find(w => w.woNumber === woNumber);
+  const op = wo ? wo.operations.find(o => o.opSeq === opSeq) : null;
+  if (!op) return;
+
+  document.getElementById('ghp-title').textContent = woNumber + ' — Op ' + opSeq;
+  document.getElementById('ghp-sub').textContent = op.description + ' · ' + op.craft;
+
+  ganttHoursRenderBody(wo, op);
+
+  // Position popup near click but keep on screen
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let x = e.clientX + 10, y = e.clientY + 10;
+  popup.style.display = 'block';
+  const pw = popup.offsetWidth, ph = popup.offsetHeight;
+  if (x + pw > vw - 10) x = e.clientX - pw - 10;
+  if (y + ph > vh - 10) y = e.clientY - ph - 10;
+  popup.style.left = Math.max(8, x) + 'px';
+  popup.style.top  = Math.max(8, y) + 'px';
+
+  // Click outside to close
+  setTimeout(() => document.addEventListener('click', _ghpOutsideClose, { once: true, capture: true }), 0);
+}
+
+function _ghpOutsideClose(e) {
+  const popup = document.getElementById('gantt-hours-popup');
+  if (popup && !popup.contains(e.target)) { ganttHoursClose(); }
+  else { setTimeout(() => document.addEventListener('click', _ghpOutsideClose, { once: true, capture: true }), 0); }
+}
+
+function ganttHoursClose() {
+  const popup = document.getElementById('gantt-hours-popup');
+  if (popup) popup.style.display = 'none';
+  document.removeEventListener('click', _ghpOutsideClose, true);
+  _ghpWO = null; _ghpOp = null;
+}
+
+function ganttHoursRenderBody(wo, op) {
+  const assignments = state.assignments.filter(a => a.woNumber === wo.woNumber && a.opSeq === op.opSeq);
+  // Group by date
+  const byDate = {};
+  assignments.forEach(a => {
+    if (!byDate[a.date]) byDate[a.date] = [];
+    byDate[a.date].push(a);
+  });
+  const sortedDates = Object.keys(byDate).sort();
+  const totalHrs = assignments.reduce((s,a) => s + (a.hours||0), 0);
+
+  let body = '';
+  if (sortedDates.length === 0) {
+    body = '<div style="color:var(--text-muted);text-align:center;padding:12px 0">No assignments yet.<br>Drag op bar to place, or use + Add Day.</div>';
+  } else {
+    body += '<table style="width:100%;border-collapse:collapse">';
+    body += '<tr style="font-size:10px;color:var(--text-muted);border-bottom:1px solid var(--border)">' +
+            '<th style="text-align:left;padding:3px 4px">Date</th>' +
+            '<th style="text-align:left;padding:3px 4px">Person</th>' +
+            '<th style="text-align:center;padding:3px 4px">Hrs</th>' +
+            '<th style="padding:3px 4px"></th></tr>';
+    sortedDates.forEach(date => {
+      byDate[date].forEach((a, idx) => {
+        const uid = a.id || (date+idx);
+        body += `<tr style="border-bottom:1px solid var(--border)33">
+          <td style="padding:4px;font-size:11px;color:var(--text-secondary);white-space:nowrap">${idx===0?fmtDate(date):''}</td>
+          <td style="padding:4px;font-size:11px;color:var(--text-primary);min-width:80px">${a.employeeName||'Pool'}</td>
+          <td style="padding:4px;text-align:center">
+            <input type="number" min="0.5" max="24" step="0.5" value="${a.hours||0}"
+              data-id="${uid}" data-date="${date}" data-emp="${a.employeeName}"
+              onchange="ganttHoursUpdate('${wo.woNumber}',${op.opSeq},'${date}','${a.employeeName}',this.value)"
+              style="width:44px;border:1px solid var(--border);border-radius:3px;
+                padding:2px 4px;font-size:11px;text-align:center;background:var(--bg-surface);color:var(--text-primary)">
+          </td>
+          <td style="padding:4px;text-align:center">
+            <button onclick="ganttHoursRemove('${wo.woNumber}',${op.opSeq},'${date}','${a.employeeName}')"
+              style="background:none;border:none;color:#DC3545;cursor:pointer;font-size:13px;padding:0 2px"
+              title="Remove this assignment">✕</button>
+          </td>
+        </tr>`;
+      });
+    });
+    body += '</table>';
+  }
+  document.getElementById('ghp-body').innerHTML = body;
+
+  const estHrs = op.estHours || 0;
+  const pct = estHrs > 0 ? Math.round(totalHrs / estHrs * 100) : 0;
+  const col = pct >= 100 ? '#28A745' : pct > 0 ? '#F0AD4E' : '#6C757D';
+  document.getElementById('ghp-total').innerHTML =
+    `<span style="color:${col};font-weight:700">${totalHrs}h scheduled</span>` +
+    ` / ${estHrs}h est (${pct}%)`;
+}
+
+function ganttHoursUpdate(woNumber, opSeq, date, empName, newHours) {
+  const hrs = parseFloat(newHours);
+  if (isNaN(hrs) || hrs <= 0) return;
+  const a = state.assignments.find(x =>
+    x.woNumber === woNumber && x.opSeq === opSeq && x.date === date && x.employeeName === empName);
+  if (a) {
+    a.hours = hrs;
+    // Refresh total in popup
+    const wo = state.workOrders.find(w => w.woNumber === woNumber);
+    const op = wo ? wo.operations.find(o => o.opSeq === opSeq) : null;
+    if (wo && op) ganttHoursRenderBody(wo, op);
+    render();
+    // Re-open popup stays visible (render rebuilds DOM but popup is outside gantt)
+  }
+}
+
+function ganttHoursRemove(woNumber, opSeq, date, empName) {
+  state.assignments = state.assignments.filter(a =>
+    !(a.woNumber === woNumber && a.opSeq === opSeq && a.date === date && a.employeeName === empName));
+  const wo = state.workOrders.find(w => w.woNumber === woNumber);
+  const op = wo ? wo.operations.find(o => o.opSeq === opSeq) : null;
+  if (wo && op) ganttHoursRenderBody(wo, op);
+  render();
+}
+
+function ganttHoursAddDay() {
+  if (!_ghpWO || _ghpOp === null) return;
+  const wo = state.workOrders.find(w => w.woNumber === _ghpWO);
+  const op = wo ? wo.operations.find(o => o.opSeq === _ghpOp) : null;
+  if (!wo || !op) return;
+
+  // Find next available weekday within op window
+  const span = _opSpan(_ghpWO, _ghpOp);
+  const usedDates = new Set(state.assignments
+    .filter(a => a.woNumber === _ghpWO && a.opSeq === _ghpOp)
+    .map(a => a.date));
+
+  // Find first gap day in op window, or next day after last assignment
+  const ganttDates = getGanttDates();
+  const opStart = span ? (span.start || ganttDates[0]) : ganttDates[0];
+  const opEnd   = span ? (span.end   || ganttDates[ganttDates.length-1]) : ganttDates[ganttDates.length-1];
+
+  let targetDate = null;
+  const allDates = ganttDates.filter(d => d >= opStart && d <= opEnd);
+  // Prefer weekdays with no assignment
+  for (const d of allDates) {
+    const dow = new Date(d + 'T00:00:00').getDay();
+    if (dow !== 0 && dow !== 6 && !usedDates.has(d)) { targetDate = d; break; }
+  }
+  if (!targetDate) {
+    // Just use next weekday after last assigned date
+    const sorted = [...usedDates].sort();
+    let next = sorted.length ? _addDays(sorted[sorted.length-1], 1) : opStart;
+    for (let i = 0; i < 14; i++) {
+      const dow = new Date(next + 'T00:00:00').getDay();
+      if (dow !== 0 && dow !== 6) { targetDate = next; break; }
+      next = _addDays(next, 1);
+    }
+  }
+  if (!targetDate) return;
+
+  // Add assignment (pool if no employees assigned, else copy last employee)
+  const lastA = state.assignments.filter(a => a.woNumber === _ghpWO && a.opSeq === _ghpOp).slice(-1)[0];
+  state.assignments.push({
+    id: uid(), woNumber: _ghpWO, opSeq: _ghpOp,
+    employeeName: lastA ? lastA.employeeName : 'Pool',
+    date: targetDate,
+    hours: op.estHours || 8,
+    status: 'Scheduled'
+  });
+  // Auto-expand op window
+  if (!op.schedStart || targetDate < op.schedStart) op.schedStart = targetDate;
+  if (!op.schedEnd   || targetDate > op.schedEnd)   op.schedEnd   = targetDate;
+  _autoExpandWO(_ghpWO, op.schedStart, op.schedEnd);
+
+  ganttHoursRenderBody(wo, op);
+  render();
 }
 
 
@@ -6185,5 +6371,28 @@ document.addEventListener('scroll', () => {
 loadAvailability();
 render();
 </script>
+
+<!-- Gantt op hours editor popup -->
+<div id="gantt-hours-popup" style="display:none;position:fixed;z-index:9999;
+  background:var(--bg-card);border:1px solid var(--border);border-radius:8px;
+  box-shadow:0 4px 20px #00000033;padding:0;min-width:260px;max-width:340px;font-size:12px">
+  <div style="padding:10px 14px 8px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-between">
+    <div>
+      <div id="ghp-title" style="font-weight:700;color:var(--text-primary);font-size:13px"></div>
+      <div id="ghp-sub" style="font-size:10px;color:var(--text-secondary);margin-top:1px"></div>
+    </div>
+    <button onclick="ganttHoursClose()" style="background:none;border:none;color:var(--text-muted);
+      cursor:pointer;font-size:16px;padding:0 4px;line-height:1">✕</button>
+  </div>
+  <div id="ghp-body" style="padding:10px 14px;max-height:260px;overflow-y:auto"></div>
+  <div id="ghp-footer" style="padding:8px 14px;border-top:1px solid var(--border);
+    display:flex;justify-content:space-between;align-items:center">
+    <span id="ghp-total" style="font-size:11px;color:var(--text-secondary)"></span>
+    <button id="ghp-add-btn" onclick="ganttHoursAddDay()"
+      style="background:var(--accent);color:#FFF;border:none;border-radius:4px;
+      padding:3px 10px;font-size:11px;cursor:pointer">+ Add Day</button>
+  </div>
+</div>
 </body>
 </html>
