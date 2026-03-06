@@ -3632,6 +3632,10 @@ function renderGanttView(html, dates) {
   return html;
 }
 
+function ganttScrollHandler(el) {
+  // Single scroll container — no sync needed, kept for template reference
+}
+
 function ganttAutoScroll() {
   const hint = document.getElementById('gantt-autoscroll');
   if (!hint) return;
