@@ -3298,6 +3298,7 @@ function renderGanttView(html, dates) {
     <button class="gantt-zoom-btn" onclick="ganttCollapseAll()" title="Collapse all WOs">⊟ Collapse All</button>
     <button class="gantt-zoom-btn ${state.ganttGroupBy==='dept'?'active':''}" onclick="state.ganttGroupBy='dept';render()">By Dept</button>
     <button class="gantt-zoom-btn ${state.ganttGroupBy==='priority'?'active':''}" onclick="state.ganttGroupBy='priority';render()">By Priority</button>
+    <button class="gantt-zoom-btn ${state.ganttGroupBy==='people'?'active':''}" onclick="state.ganttGroupBy='people';render()" style="${state.ganttGroupBy==='people'?'background:#28A745;color:#FFF;':''}">👥 People</button>
     <div class="gantt-legend">
       <div class="gantt-legend-item"><div class="gantt-legend-swatch" style="background:#28A745"></div>Low/Med</div>
       <div class="gantt-legend-item"><div class="gantt-legend-swatch" style="background:#F0AD4E"></div>High</div>
@@ -3414,7 +3415,8 @@ function renderGanttView(html, dates) {
       background:${isTod?'var(--accent-glow)':bg(d,isWE)}"></div>`;
   }).join('');
 
-  groups.forEach(grp => {
+  if (state.ganttGroupBy !== 'people') {
+    groups.forEach(grp => {
     // Group header row
     html += `<div style="display:flex;height:${GRP_H}px">`;
     html += mkLabel(GRP_H, null,
@@ -3635,6 +3637,22 @@ function renderGanttView(html, dates) {
                 font-weight:700;color:#FFF;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;text-align:center">
                 ${barWid>50?'Op'+op.opSeq+(barWid>90?' '+op.description.substring(0,8)+(op.description.length>8?'…':''):''):''}
               </span>
+              <!-- Employee initials bubbles -->
+              ${(() => {
+                const names = [...new Set(empA.map(a=>a.employeeName))];
+                if (!names.length && !poolA.length) return '';
+                const show = names.slice(0,3);
+                const extra = names.length - show.length + (poolA.length ? 1 : 0);
+                let html2 = '<span style="display:flex;gap:1px;align-items:center;padding-right:2px;flex-shrink:0">';
+                if (poolA.length) html2 += '<span style="width:14px;height:14px;border-radius:50%;background:rgba(23,162,184,0.85);color:#FFF;font-size:6px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid rgba(255,255,255,0.3)" title="Pool">◉</span>';
+                show.forEach(n => {
+                  const ini = n.split(' ').map(w=>w[0]||'').join('').substring(0,2).toUpperCase();
+                  html2 += '<span style="width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,0.25);color:#FFF;font-size:6px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid rgba(255,255,255,0.4)" title="' + n + '">' + ini + '</span>';
+                });
+                if (extra > 0) html2 += '<span style="width:14px;height:14px;border-radius:50%;background:rgba(0,0,0,0.3);color:#FFF;font-size:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0">+' + extra + '</span>';
+                html2 += '</span>';
+                return html2;
+              })()}
               <!-- RIGHT resize handle -->
               <div draggable="true"
                 ondragstart="ganttOpResizeRightStart(event,'${wo.woNumber}',${op.opSeq})"
@@ -3669,7 +3687,144 @@ function renderGanttView(html, dates) {
     html += `<div id="gantt-autoscroll" data-idx="${scrollIdx}" data-cw="${cellW}" data-lw="${labelW}" style="display:none"></div>`;
   }
 
-  html += `</div>`; // end gantt-grid-inner
+  } else {
+    // ── PEOPLE VIEW: employee rows with their op bars ──────────────
+    const craftFilter = state.filterCraft !== 'All' ? state.filterCraft : null;
+    const deptFilter  = state.filterDept  !== 'All' ? state.filterDept  : null;
+    let visEmps = state.employees.filter(e => {
+      if (craftFilter && e.craft !== craftFilter) return false;
+      if (deptFilter  && e.department !== deptFilter) return false;
+      return true;
+    });
+    if (!visEmps.length) visEmps = state.employees;
+
+    // Group employees by department
+    const empDepts = [...new Set(visEmps.map(e => e.department))];
+    empDepts.forEach(dept => {
+      const deptEmps = visEmps.filter(e => e.department === dept);
+      const dc = DEPT_COLORS[dept] || {};
+
+      // Dept header
+      html += `<div style="display:flex;height:${GRP_H}px">`;
+      html += mkLabel(GRP_H, null,
+        `<span style="color:${dc.badge||'#888'};font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px">${dept}</span>
+         <span style="font-size:9px;color:var(--text-secondary);margin-left:6px">${deptEmps.length} emp</span>`
+      );
+      html += `<div style="flex:1;background:${dc.badge||'#888'}12;border-bottom:1px solid ${dc.badge||'#888'}33;display:flex">`;
+      ganttDates.forEach((d,i) => {
+        const isMon = new Date(d+'T00:00:00').getDate()===1;
+        html += `<div style="width:${cellW}px;flex-shrink:0;border-right:${isMon&&i>0?'2px solid var(--accent)':'1px solid var(--border)'}"></div>`;
+      });
+      html += `</div></div>`;
+
+      deptEmps.forEach(emp => {
+        const wkLoad  = getEmpWeekLoad(emp.name);
+        const wkAvail = getEmpWeekAvail(emp.name);
+        const wkPct   = wkAvail > 0 ? Math.min(100, wkLoad/wkAvail*100) : 0;
+        const wkColor = wkPct > 95 ? '#DC3545' : wkPct > 80 ? '#F0AD4E' : '#28A745';
+        const ini = emp.name.split(' ').map(w=>w[0]||'').join('').substring(0,2).toUpperCase();
+        const cc = gc(emp.craft);
+
+        // Employee label
+        const empLabel = `<div style="display:flex;align-items:center;gap:6px;padding:0 8px;height:100%">
+          <span style="width:22px;height:22px;border-radius:50%;background:${cc.badge};color:#FFF;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ini}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:10px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${emp.name}</div>
+            <div style="font-size:8px;color:var(--text-secondary)">${emp.craft}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:9px;font-weight:700;color:${wkColor}">${wkPct.toFixed(0)}%</div>
+            <div style="font-size:8px;color:var(--text-secondary)">${wkLoad.toFixed(0)}/${wkAvail}h</div>
+          </div>
+        </div>`;
+
+        html += `<div style="display:flex;height:${OP_H+4}px;border-bottom:1px solid var(--border)44">`;
+        html += mkLabel(OP_H+4, null, empLabel);
+        html += `<div style="flex:1;position:relative;display:flex">`;
+
+        // Day cells
+        ganttDates.forEach((d,i) => {
+          const dayAvail = getEmpAvailHours ? getEmpAvailHours(emp.name, d) : emp.hoursPerDay;
+          const isOff = dayAvail === 0;
+          const isMon = new Date(d+'T00:00:00').getDate()===1;
+          html += `<div style="width:${cellW}px;flex-shrink:0;height:100%;position:relative;
+            border-right:${isMon&&i>0?'2px solid var(--accent)':'1px solid var(--border)'};
+            box-sizing:border-box;
+            ${isOff?'background:repeating-linear-gradient(45deg,transparent,transparent 3px,var(--border) 3px,var(--border) 4px)':''}">`;
+          html += `</div>`;
+        });
+
+        // Op bars — all assignments for this employee across the gantt range
+        const empAssigns = state.assignments.filter(a => a.employeeName === emp.name && ganttDates.includes(a.date));
+        empAssigns.forEach(a => {
+          const op = getAllOps().find(o => o.woNumber === a.woNumber && o.opSeq === a.opSeq);
+          if (!op) return;
+          const dayIdx = ganttDates.indexOf(a.date);
+          if (dayIdx < 0) return;
+          const occ = typeof gc === 'function' ? gc(op.craft) : cc;
+          const wo = state.workOrders.find(w => w.woNumber === a.woNumber);
+          const isDone = a.status === 'Complete';
+          const barColor = isDone ? '#28A745' : occ.badge;
+          const dayAvail = getEmpAvailHours ? getEmpAvailHours(emp.name, a.date) : emp.hoursPerDay;
+          const dayLoad = getEmpLoad ? getEmpLoad(emp.name, a.date) : a.hours;
+          const overloaded = dayLoad > dayAvail;
+          const barLeft = dayIdx * cellW + 1;
+          const barW = Math.max(cellW - 2, 10);
+          // Height proportional to hours vs dayAvail
+          const hPct = dayAvail > 0 ? Math.min(1, a.hours / dayAvail) : 0.5;
+          const barH = Math.max(6, Math.round((OP_H - 2) * hPct));
+          const barTop = (OP_H + 4 - barH) / 2;
+
+          html += `<div title="${a.woNumber} Op${a.opSeq}: ${op.description}\n${a.hours}h · ${fmtDate(a.date)}\nClick to view assignment"
+            onclick="ganttHoursOpen(event,'${a.woNumber}',${a.opSeq})"
+            style="position:absolute;left:${barLeft}px;top:${barTop}px;width:${barW}px;height:${barH}px;
+              background:${barColor};border-radius:3px;opacity:0.85;cursor:pointer;z-index:4;
+              overflow:hidden;display:flex;align-items:center;justify-content:center;
+              ${overloaded?'border:2px solid #DC3545':''}
+              box-shadow:0 1px 3px #00000033">
+            <span style="font-size:${cellW<28?6:7}px;font-weight:700;color:#FFF;overflow:hidden;white-space:nowrap;padding:0 2px">
+              ${cellW>40?a.woNumber.replace('WO-','')+(cellW>70?' Op'+a.opSeq:''):''}
+            </span>
+          </div>`;
+        });
+
+        html += `</div></div>`;
+      });
+    });
+
+    // Pool assignments row
+    const poolAssigns = state.assignments.filter(a => isPoolAssignment(a) && ganttDates.includes(a.date));
+    if (poolAssigns.length) {
+      html += `<div style="display:flex;height:${OP_H+4}px;border-bottom:1px solid var(--border)44">`;
+      html += mkLabel(OP_H+4, null,
+        `<div style="display:flex;align-items:center;gap:6px;padding:0 8px;height:100%">
+          <span style="width:22px;height:22px;border-radius:50%;background:#17A2B8;color:#FFF;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center">◉</span>
+          <div><div style="font-size:10px;font-weight:600;color:#17A2B8">Resource Pool</div>
+          <div style="font-size:8px;color:var(--text-secondary)">${poolAssigns.length} ops</div></div>
+        </div>`);
+      html += `<div style="flex:1;position:relative;display:flex">`;
+      ganttDates.forEach((d,i) => {
+        const isMon = new Date(d+'T00:00:00').getDate()===1;
+        html += `<div style="width:${cellW}px;flex-shrink:0;height:100%;border-right:${isMon&&i>0?'2px solid var(--accent)':'1px solid var(--border)'}"></div>`;
+      });
+      poolAssigns.forEach(a => {
+        const op = getAllOps().find(o => o.woNumber === a.woNumber && o.opSeq === a.opSeq);
+        if (!op) return;
+        const dayIdx = ganttDates.indexOf(a.date);
+        if (dayIdx < 0) return;
+        const occ = typeof gc === 'function' ? gc(op.craft) : { badge: '#17A2B8' };
+        html += `<div title="${a.woNumber} Op${a.opSeq}\n${a.hours}h pool · ${fmtDate(a.date)}"
+          onclick="ganttHoursOpen(event,'${a.woNumber}',${a.opSeq})"
+          style="position:absolute;left:${dayIdx*cellW+1}px;top:2px;width:${Math.max(cellW-2,10)}px;height:${OP_H}px;
+            background:#17A2B8;border-radius:3px;opacity:0.8;cursor:pointer;z-index:4;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px #00000033">
+          <span style="font-size:7px;font-weight:700;color:#FFF">${cellW>40?a.woNumber.replace('WO-',''):''}</span>
+        </div>`;
+      });
+      html += `</div></div>`;
+    }
+  }
+
+    html += `</div>`; // end gantt-grid-inner
   return html;
 }
 
@@ -4075,179 +4230,215 @@ function _autoExpandWO(woNumber, newStart, newEnd) {
 
 let _ghpWO = null, _ghpOp = null; // current popup context
 
-function ganttHoursOpen(e, woNumber, opSeq) {
-  _ghpWO = woNumber; _ghpOp = opSeq;
-  const popup = document.getElementById('gantt-hours-popup');
-  if (!popup) return;
+// ── GANTT ASSIGN PANEL ─────────────────────────────────────────
+let _gapWO = null, _gapOp = null;
 
-  const wo = state.workOrders.find(w => w.woNumber === woNumber);
-  const op = wo ? wo.operations.find(o => o.opSeq === opSeq) : null;
+function ganttHoursOpen(e, woNumber, opSeq) {
+  e.stopPropagation();
+  _gapWO = woNumber; _gapOp = opSeq;
+  ganttPanelRefresh();
+  const panel = document.getElementById('gantt-assign-panel');
+  const overlay = document.getElementById('gap-overlay');
+  panel.style.display = 'flex';
+  overlay.style.display = 'block';
+  requestAnimationFrame(() => panel.style.transform = 'translateX(0)');
+}
+
+// Keep old alias for any remaining references
+function ganttHoursClose() { ganttPanelClose(); }
+
+function ganttPanelClose() {
+  const panel = document.getElementById('gantt-assign-panel');
+  const overlay = document.getElementById('gap-overlay');
+  if (!panel) return;
+  panel.style.transform = 'translateX(100%)';
+  overlay.style.display = 'none';
+  setTimeout(() => { panel.style.display = 'none'; }, 230);
+  _gapWO = null; _gapOp = null;
+}
+
+function ganttPanelRefresh() {
+  if (!_gapWO || !_gapOp) return;
+  const wo = state.workOrders.find(w => w.woNumber === _gapWO);
+  const op = wo ? wo.operations.find(o => o.opSeq === _gapOp) : null;
   if (!op) return;
 
-  document.getElementById('ghp-title').textContent = woNumber + ' — Op ' + opSeq;
-  document.getElementById('ghp-sub').textContent = op.description + ' · ' + op.craft;
-
-  ganttHoursRenderBody(wo, op);
-
-  // Position popup near click but keep on screen
-  const vw = window.innerWidth, vh = window.innerHeight;
-  let x = e.clientX + 10, y = e.clientY + 10;
-  popup.style.display = 'block';
-  const pw = popup.offsetWidth, ph = popup.offsetHeight;
-  if (x + pw > vw - 10) x = e.clientX - pw - 10;
-  if (y + ph > vh - 10) y = e.clientY - ph - 10;
-  popup.style.left = Math.max(8, x) + 'px';
-  popup.style.top  = Math.max(8, y) + 'px';
-
-  // Click outside to close
-  setTimeout(() => document.addEventListener('click', _ghpOutsideClose, { once: true, capture: true }), 0);
-}
-
-function _ghpOutsideClose(e) {
-  const popup = document.getElementById('gantt-hours-popup');
-  if (popup && !popup.contains(e.target)) { ganttHoursClose(); }
-  else { setTimeout(() => document.addEventListener('click', _ghpOutsideClose, { once: true, capture: true }), 0); }
-}
-
-function ganttHoursClose() {
-  const popup = document.getElementById('gantt-hours-popup');
-  if (popup) popup.style.display = 'none';
-  document.removeEventListener('click', _ghpOutsideClose, true);
-  _ghpWO = null; _ghpOp = null;
-}
-
-function ganttHoursRenderBody(wo, op) {
-  const assignments = state.assignments.filter(a => a.woNumber === wo.woNumber && a.opSeq === op.opSeq);
-  // Group by date
-  const byDate = {};
-  assignments.forEach(a => {
-    if (!byDate[a.date]) byDate[a.date] = [];
-    byDate[a.date].push(a);
-  });
-  const sortedDates = Object.keys(byDate).sort();
-  const totalHrs = assignments.reduce((s,a) => s + (a.hours||0), 0);
-
-  let body = '';
-  if (sortedDates.length === 0) {
-    body = '<div style="color:var(--text-muted);text-align:center;padding:12px 0">No assignments yet.<br>Drag op bar to place, or use + Add Day.</div>';
-  } else {
-    body += '<table style="width:100%;border-collapse:collapse">';
-    body += '<tr style="font-size:10px;color:var(--text-muted);border-bottom:1px solid var(--border)">' +
-            '<th style="text-align:left;padding:3px 4px">Date</th>' +
-            '<th style="text-align:left;padding:3px 4px">Person</th>' +
-            '<th style="text-align:center;padding:3px 4px">Hrs</th>' +
-            '<th style="padding:3px 4px"></th></tr>';
-    sortedDates.forEach(date => {
-      byDate[date].forEach((a, idx) => {
-        const uid = a.id || (date+idx);
-        body += `<tr style="border-bottom:1px solid var(--border)33">
-          <td style="padding:4px;font-size:11px;color:var(--text-secondary);white-space:nowrap">${idx===0?fmtDate(date):''}</td>
-          <td style="padding:4px;font-size:11px;color:var(--text-primary);min-width:80px">${a.employeeName||'Pool'}</td>
-          <td style="padding:4px;text-align:center">
-            <input type="number" min="0.5" max="24" step="0.5" value="${a.hours||0}"
-              data-id="${uid}" data-date="${date}" data-emp="${a.employeeName}"
-              onchange="ganttHoursUpdate('${wo.woNumber}',${op.opSeq},'${date}','${a.employeeName}',this.value)"
-              style="width:44px;border:1px solid var(--border);border-radius:3px;
-                padding:2px 4px;font-size:11px;text-align:center;background:var(--bg-surface);color:var(--text-primary)">
-          </td>
-          <td style="padding:4px;text-align:center">
-            <button onclick="ganttHoursRemove('${wo.woNumber}',${op.opSeq},'${date}','${a.employeeName}')"
-              style="background:none;border:none;color:#DC3545;cursor:pointer;font-size:13px;padding:0 2px"
-              title="Remove this assignment">✕</button>
-          </td>
-        </tr>`;
-      });
-    });
-    body += '</table>';
-  }
-  document.getElementById('ghp-body').innerHTML = body;
-
-  const estHrs = op.estHours || 0;
-  const pct = estHrs > 0 ? Math.round(totalHrs / estHrs * 100) : 0;
-  const col = pct >= 100 ? '#28A745' : pct > 0 ? '#F0AD4E' : '#6C757D';
-  document.getElementById('ghp-total').innerHTML =
-    `<span style="color:${col};font-weight:700">${totalHrs}h scheduled</span>` +
-    ` / ${estHrs}h est (${pct}%)`;
-}
-
-function ganttHoursUpdate(woNumber, opSeq, date, empName, newHours) {
-  const hrs = parseFloat(newHours);
-  if (isNaN(hrs) || hrs <= 0) return;
-  const a = state.assignments.find(x =>
-    x.woNumber === woNumber && x.opSeq === opSeq && x.date === date && x.employeeName === empName);
-  if (a) {
-    a.hours = hrs;
-    // Refresh total in popup
-    const wo = state.workOrders.find(w => w.woNumber === woNumber);
-    const op = wo ? wo.operations.find(o => o.opSeq === opSeq) : null;
-    if (wo && op) ganttHoursRenderBody(wo, op);
-    render();
-    // Re-open popup stays visible (render rebuilds DOM but popup is outside gantt)
-  }
-}
-
-function ganttHoursRemove(woNumber, opSeq, date, empName) {
-  state.assignments = state.assignments.filter(a =>
-    !(a.woNumber === woNumber && a.opSeq === opSeq && a.date === date && a.employeeName === empName));
-  const wo = state.workOrders.find(w => w.woNumber === woNumber);
-  const op = wo ? wo.operations.find(o => o.opSeq === opSeq) : null;
-  if (wo && op) ganttHoursRenderBody(wo, op);
-  render();
-}
-
-function ganttHoursAddDay() {
-  if (!_ghpWO || _ghpOp === null) return;
-  const wo = state.workOrders.find(w => w.woNumber === _ghpWO);
-  const op = wo ? wo.operations.find(o => o.opSeq === _ghpOp) : null;
-  if (!wo || !op) return;
-
-  // Find next available weekday within op window
-  const span = _opSpan(_ghpWO, _ghpOp);
-  const usedDates = new Set(state.assignments
-    .filter(a => a.woNumber === _ghpWO && a.opSeq === _ghpOp)
-    .map(a => a.date));
-
-  // Find first gap day in op window, or next day after last assignment
+  const dates = getWeekDates();
   const ganttDates = getGanttDates();
-  const opStart = span ? (span.start || ganttDates[0]) : ganttDates[0];
-  const opEnd   = span ? (span.end   || ganttDates[ganttDates.length-1]) : ganttDates[ganttDates.length-1];
+  const allA = state.assignments.filter(a => a.woNumber === _gapWO && a.opSeq === _gapOp);
+  const assignedH = allA.reduce((s, a) => s + a.hours, 0);
+  const pct = op.estHours > 0 ? Math.min(100, assignedH / op.estHours * 100) : 0;
+  const pctColor = pct >= 100 ? '#28A745' : pct > 0 ? '#F0AD4E' : '#6C757D';
+  const cc = typeof gc === 'function' ? gc(op.craft) : { badge: '#666' };
 
-  let targetDate = null;
-  const allDates = ganttDates.filter(d => d >= opStart && d <= opEnd);
-  // Prefer weekdays with no assignment
-  for (const d of allDates) {
-    const dow = new Date(d + 'T00:00:00').getDay();
-    if (dow !== 0 && dow !== 6 && !usedDates.has(d)) { targetDate = d; break; }
+  // Header
+  document.getElementById('gap-title').textContent = _gapWO + '  ·  Op ' + _gapOp;
+  document.getElementById('gap-sub').textContent = op.description + '  ·  ' + op.craft + '  ·  ' + op.estHours + 'h est';
+  document.getElementById('gap-progress').innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px">
+      <div style="flex:1;height:6px;background:var(--cap-bar-bg);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:\${pct}%;background:\${pctColor};border-radius:3px;transition:width 0.3s"></div>
+      </div>
+      <span style="font-size:10px;font-weight:700;color:\${pctColor}">\${assignedH.toFixed(1)}/\${op.estHours}h</span>
+    </div>`;
+
+  // Current assignments
+  const aDiv = document.getElementById('gap-assignments');
+  if (allA.length === 0) {
+    aDiv.innerHTML = `<div style="font-size:10px;color:var(--text-muted);font-style:italic;padding:4px 0">None yet</div>`;
+  } else {
+    aDiv.innerHTML = allA.map(a => {
+      const dayLoad = getEmpLoad ? getEmpLoad(a.employeeName, a.date) : a.hours;
+      const dayAvail = getEmpAvailHours ? getEmpAvailHours(a.employeeName, a.date) : 8;
+      const dayPct = dayAvail > 0 ? Math.min(100, dayLoad / dayAvail * 100) : 0;
+      const dayColor = dayPct > 100 ? '#DC3545' : dayPct > 85 ? '#F0AD4E' : '#28A745';
+      const ini = a.employeeName.split(' ').map(w => w[0] || '').join('').substring(0,2).toUpperCase();
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg-base);border-radius:5px;margin-bottom:4px;border:1px solid var(--border)">
+        <span style="width:26px;height:26px;border-radius:50%;background:\${cc.badge};color:#FFF;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">\${ini}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:10px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">\${a.employeeName}</div>
+          <div style="font-size:9px;color:var(--text-secondary)">\${fmtDate(a.date)} · \${a.hours}h</div>
+          <div style="display:flex;align-items:center;gap:4px;margin-top:2px">
+            <div style="flex:1;height:3px;background:var(--cap-bar-bg);border-radius:2px;overflow:hidden">
+              <div style="height:100%;width:\${dayPct}%;background:\${dayColor}"></div>
+            </div>
+            <span style="font-size:8px;color:\${dayColor}">\${dayLoad.toFixed(1)}/\${dayAvail}h</span>
+          </div>
+        </div>
+        <button onclick="ganttPanelRemove('\${a.id}')" style="background:none;border:none;color:#DC354566;cursor:pointer;font-size:14px;padding:2px 4px;line-height:1">×</button>
+      </div>`;
+    }).join('');
   }
-  if (!targetDate) {
-    // Just use next weekday after last assigned date
-    const sorted = [...usedDates].sort();
-    let next = sorted.length ? _addDays(sorted[sorted.length-1], 1) : opStart;
-    for (let i = 0; i < 14; i++) {
-      const dow = new Date(next + 'T00:00:00').getDay();
-      if (dow !== 0 && dow !== 6) { targetDate = next; break; }
-      next = _addDays(next, 1);
-    }
-  }
-  if (!targetDate) return;
 
-  // Add assignment (pool if no employees assigned, else copy last employee)
-  const lastA = state.assignments.filter(a => a.woNumber === _ghpWO && a.opSeq === _ghpOp).slice(-1)[0];
-  state.assignments.push({
-    id: uid(), woNumber: _ghpWO, opSeq: _ghpOp,
-    employeeName: lastA ? lastA.employeeName : 'Pool',
-    date: targetDate,
-    hours: op.estHours || 8,
-    status: 'Scheduled'
-  });
-  // Auto-expand op window
-  if (!op.schedStart || targetDate < op.schedStart) op.schedStart = targetDate;
-  if (!op.schedEnd   || targetDate > op.schedEnd)   op.schedEnd   = targetDate;
-  _autoExpandWO(_ghpWO, op.schedStart, op.schedEnd);
+  // Populate employee dropdown (craft-matched)
+  const matchEmps = state.employees.filter(e => e.craft === op.craft);
+  const empSel = document.getElementById('gap-emp');
+  empSel.innerHTML = `<option value="">-- Select employee --</option>` +
+    `<option value="Pool">◉ Pool (unassigned resource)</option>` +
+    matchEmps.map(e => {
+      const wkLoad = getEmpWeekLoad(e.name);
+      const wkAvail = getEmpWeekAvail(e.name);
+      const pct2 = wkAvail > 0 ? Math.round(wkLoad/wkAvail*100) : 0;
+      return `<option value="\${e.name}">\${e.name} (\${pct2}% loaded)</option>`;
+    }).join('');
 
-  ganttHoursRenderBody(wo, op);
-  render();
+  // Populate date dropdown (gantt date range, prefer WO window)
+  const dateSel = document.getElementById('gap-date');
+  const useDates = ganttDates.length > 0 ? ganttDates : dates;
+  dateSel.innerHTML = useDates.map(d => {
+    const ow = wo && ((wo.scheduledStart && d < wo.scheduledStart) || (wo.scheduledEnd && d > wo.scheduledEnd));
+    return `<option value="\${d}">\${fmtDate(d)}\${ow ? ' ⚠' : ''}</option>`;
+  }).join('');
+
+  // Default hours = remaining
+  const rem = Math.max(0, op.estHours - assignedH);
+  document.getElementById('gap-hours').value = rem > 0 ? rem : op.estHours;
+
+  // Resource pool
+  ganttPanelRenderPool(op, matchEmps);
+
+  // Emp load update on selection change
+  empSel.onchange = () => ganttPanelUpdateEmpLoad();
+  dateSel.onchange = () => ganttPanelUpdateEmpLoad();
+  ganttPanelUpdateEmpLoad();
 }
+
+function ganttPanelUpdateEmpLoad() {
+  const empName = document.getElementById('gap-emp')?.value;
+  const date = document.getElementById('gap-date')?.value;
+  const div = document.getElementById('gap-emp-load');
+  if (!div || !empName || empName === 'Pool' || !date) { if(div) div.textContent = ''; return; }
+  const load = getEmpLoad ? getEmpLoad(empName, date) : 0;
+  const avail = getEmpAvailHours ? getEmpAvailHours(empName, date) : 8;
+  const pct = avail > 0 ? Math.round(load/avail*100) : 0;
+  const color = pct > 100 ? '#DC3545' : pct > 85 ? '#F0AD4E' : '#28A745';
+  div.innerHTML = `<span style="color:\${color}">\${empName.split(' ')[0]}: \${load}h/\${avail}h this day (\${pct}%)</span>`;
+}
+
+function ganttPanelAddAssign() {
+  if (!_gapWO || !_gapOp) return;
+  const empName = document.getElementById('gap-emp').value;
+  const date = document.getElementById('gap-date').value;
+  const hours = parseFloat(document.getElementById('gap-hours').value) || 0;
+  if (!empName || !date || hours <= 0) return;
+  state.assignments.push({ id: uid(), woNumber: _gapWO, opSeq: _gapOp, employeeName: empName, date, hours, status: 'Scheduled' });
+  render();
+  // Re-open panel after render
+  setTimeout(() => {
+    _gapWO = _gapWO; // preserve
+    ganttPanelRefresh();
+    const panel = document.getElementById('gantt-assign-panel');
+    if (panel) { panel.style.display = 'flex'; panel.style.transform = 'translateX(0)'; }
+  }, 50);
+}
+
+function ganttPanelRemove(id) {
+  state.assignments = state.assignments.filter(a => a.id !== id);
+  render();
+  setTimeout(() => {
+    if (_gapWO) {
+      ganttPanelRefresh();
+      const panel = document.getElementById('gantt-assign-panel');
+      if (panel) { panel.style.display = 'flex'; panel.style.transform = 'translateX(0)'; }
+    }
+  }, 50);
+}
+
+function ganttPanelRenderPool(op, matchEmps) {
+  const div = document.getElementById('gap-pool');
+  if (!div) return;
+  const dates = getWeekDates();
+  const cc = typeof gc === 'function' ? gc(op.craft) : { badge: '#666' };
+
+  if (matchEmps.length === 0) {
+    div.innerHTML = `<div style="font-size:10px;color:var(--text-muted);font-style:italic">No \${op.craft} employees in roster</div>`;
+    return;
+  }
+
+  div.innerHTML = matchEmps.map(emp => {
+    const wkLoad = getEmpWeekLoad(emp.name);
+    const wkAvail = getEmpWeekAvail(emp.name);
+    const wkPct = wkAvail > 0 ? Math.min(100, wkLoad/wkAvail*100) : 0;
+    const wkColor = wkPct > 95 ? '#DC3545' : wkPct > 80 ? '#F0AD4E' : '#28A745';
+    const ini = emp.name.split(' ').map(w => w[0]||'').join('').substring(0,2).toUpperCase();
+    // Daily mini bars
+    const dayBars = dates.map(d => {
+      const load = getEmpLoad ? getEmpLoad(emp.name, d) : 0;
+      const avail = getEmpAvailHours ? getEmpAvailHours(emp.name, d) : emp.hoursPerDay;
+      const pct2 = avail > 0 ? Math.min(100, load/avail*100) : 0;
+      const c2 = pct2 > 95 ? '#DC3545' : pct2 > 80 ? '#F0AD4E' : pct2 > 0 ? '#28A745' : 'var(--border)';
+      const isOff = avail === 0;
+      return `<div title="\${fmtDate(d)}: \${load}/\${avail}h" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px">
+        <div style="width:100%;height:18px;background:var(--bg-base);border-radius:2px;overflow:hidden;border:1px solid var(--border);\${isOff?'opacity:0.3':''}">
+          <div style="width:100%;height:\${pct2}%;background:\${c2};position:relative;top:\${100-pct2}%"></div>
+        </div>
+        <div style="font-size:6px;color:var(--text-muted)">\${d.slice(5)}</div>
+      </div>`;
+    }).join('');
+
+    return `<div style="padding:8px 10px;background:var(--bg-base);border:1px solid var(--border);border-radius:6px;margin-bottom:6px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="width:24px;height:24px;border-radius:50%;background:\${cc.badge};color:#FFF;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">\${ini}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:10px;font-weight:600;color:var(--text-primary)">\${emp.name}</div>
+          <div style="font-size:9px;color:var(--text-secondary)">\${emp.craft} · \${emp.department}</div>
+        </div>
+        <span style="font-size:10px;font-weight:700;color:\${wkColor}">\${wkPct.toFixed(0)}%</span>
+      </div>
+      <div style="display:flex;gap:2px;height:22px">\${dayBars}</div>
+      <div style="margin-top:4px;height:3px;background:var(--cap-bar-bg);border-radius:2px;overflow:hidden">
+        <div style="height:100%;width:\${wkPct}%;background:\${wkColor};border-radius:2px"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Stubs for old function names still referenced elsewhere
+function ganttHoursRenderBody(wo, op) {}
+function ganttHoursUpdate(wo, op, date, empName, newHours) {}
+function ganttHoursRemove(wo, op, date, empName) {}
+function ganttHoursAddDay() {}
+
 
 
 // ══════════════════════════════════════════════════════════
@@ -6540,26 +6731,49 @@ render();
 </script>
 
 <!-- Gantt op hours editor popup -->
-<div id="gantt-hours-popup" style="display:none;position:fixed;z-index:9999;
-  background:var(--bg-card);border:1px solid var(--border);border-radius:8px;
-  box-shadow:0 4px 20px #00000033;padding:0;min-width:260px;max-width:340px;font-size:12px">
-  <div style="padding:10px 14px 8px;border-bottom:1px solid var(--border);
-    display:flex;align-items:center;justify-content:space-between">
-    <div>
-      <div id="ghp-title" style="font-weight:700;color:var(--text-primary);font-size:13px"></div>
-      <div id="ghp-sub" style="font-size:10px;color:var(--text-secondary);margin-top:1px"></div>
+<!-- ── GANTT ASSIGN PANEL (right-side slide-in) ── -->
+<div id="gap-overlay" onclick="ganttPanelClose()" style="display:none;position:fixed;inset:0;z-index:9990;background:transparent"></div>
+<div id="gantt-assign-panel" style="display:none;position:fixed;top:0;right:0;width:340px;height:100vh;
+  background:var(--bg-card);border-left:1px solid var(--border);z-index:9991;
+  box-shadow:-4px 0 24px #00000044;display:flex;flex-direction:column;transform:translateX(100%);
+  transition:transform 0.22s cubic-bezier(.4,0,.2,1)">
+  <!-- Header -->
+  <div id="gap-header" style="padding:14px 16px 10px;border-bottom:1px solid var(--border);flex-shrink:0">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px">
+      <div>
+        <div id="gap-title" style="font-weight:700;color:var(--text-primary);font-size:14px"></div>
+        <div id="gap-sub" style="font-size:10px;color:var(--text-secondary);margin-top:2px"></div>
+      </div>
+      <button onclick="ganttPanelClose()" style="background:none;border:none;color:var(--text-muted);
+        cursor:pointer;font-size:18px;padding:0 2px;line-height:1;margin-top:-2px">✕</button>
     </div>
-    <button onclick="ganttHoursClose()" style="background:none;border:none;color:var(--text-muted);
-      cursor:pointer;font-size:16px;padding:0 4px;line-height:1">✕</button>
+    <div id="gap-progress" style="margin-top:8px"></div>
   </div>
-  <div id="ghp-body" style="padding:10px 14px;max-height:260px;overflow-y:auto"></div>
-  <div id="ghp-footer" style="padding:8px 14px;border-top:1px solid var(--border);
-    display:flex;justify-content:space-between;align-items:center">
-    <span id="ghp-total" style="font-size:11px;color:var(--text-secondary)"></span>
-    <button id="ghp-add-btn" onclick="ganttHoursAddDay()"
-      style="background:var(--accent);color:#FFF;border:none;border-radius:4px;
-      padding:3px 10px;font-size:11px;cursor:pointer">+ Add Day</button>
+  <!-- Current assignments -->
+  <div style="padding:10px 16px 6px;border-bottom:1px solid var(--border);flex-shrink:0">
+    <div style="font-size:9px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">ASSIGNED</div>
+    <div id="gap-assignments" style="max-height:160px;overflow-y:auto"></div>
+  </div>
+  <!-- Add assignment -->
+  <div style="padding:10px 16px;border-bottom:1px solid var(--border);flex-shrink:0">
+    <div style="font-size:9px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">ADD ASSIGNMENT</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <select id="gap-emp" style="width:100%;padding:5px 8px;background:var(--bg-base);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-size:11px"></select>
+      <div style="display:flex;gap:6px">
+        <select id="gap-date" style="flex:1;padding:5px 8px;background:var(--bg-base);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-size:11px"></select>
+        <input id="gap-hours" type="number" min="0.5" max="24" step="0.5" placeholder="Hrs"
+          style="width:60px;padding:5px 8px;background:var(--bg-base);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-size:11px">
+      </div>
+      <div id="gap-emp-load" style="font-size:9px;color:var(--text-secondary)"></div>
+      <button onclick="ganttPanelAddAssign()" style="width:100%;padding:6px;background:var(--accent);color:#FFF;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer">+ Assign</button>
+    </div>
+  </div>
+  <!-- Resource pool section (all matched craft employees + their week load) -->
+  <div style="flex:1;overflow-y:auto;padding:10px 16px">
+    <div style="font-size:9px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">RESOURCE POOL</div>
+    <div id="gap-pool"></div>
   </div>
 </div>
+
 </body>
 </html>
