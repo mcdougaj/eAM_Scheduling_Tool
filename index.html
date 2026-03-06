@@ -4264,9 +4264,8 @@ function drawGanttDepLines() {
     return;
   }
 
-  const scroll = document.getElementById('gantt-scroll');
-  const inner  = document.getElementById('gantt-grid-inner');
-  if (!scroll || !inner) return;
+  const inner = document.getElementById('gantt-grid-inner');
+  if (!inner) return;
 
   // Size the SVG to cover the full scrollable content
   const W = inner.scrollWidth, H = inner.scrollHeight;
@@ -4275,18 +4274,31 @@ function drawGanttDepLines() {
   svg.style.width  = W + 'px';
   svg.style.height = H + 'px';
 
-  // Build position map from op bar data-dep-node elements
+  // Use offsetLeft/offsetTop relative to gantt-grid-inner (same coordinate space as SVG)
+  // The op bars use position:absolute with left/top in px from inner's top-left.
+  // getBoundingClientRect() gives viewport coords which change on scroll — avoid it.
   const nodes = inner.querySelectorAll('[data-dep-node]');
   const posMap = {};
-  const innerRect = inner.getBoundingClientRect();
+
+  function offsetFromInner(el) {
+    let x = 0, y = 0;
+    let cur = el;
+    while (cur && cur !== inner) {
+      x += cur.offsetLeft || 0;
+      y += cur.offsetTop  || 0;
+      cur = cur.offsetParent;
+    }
+    return { x, y };
+  }
+
   nodes.forEach(el => {
     const key = el.getAttribute('data-dep-node');
-    const r = el.getBoundingClientRect();
+    const off = offsetFromInner(el);
     posMap[key] = {
-      x: r.left - innerRect.left + scroll.scrollLeft,
-      y: r.top  - innerRect.top  + scroll.scrollTop,
-      w: r.width,
-      h: r.height
+      x: off.x,
+      y: off.y,
+      w: el.offsetWidth,
+      h: el.offsetHeight
     };
   });
 
