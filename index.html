@@ -3466,6 +3466,8 @@ function renderGanttView(html, dates) {
       const we  = wo.scheduledEnd   ? wo.scheduledEnd.slice(0,10)   : '';
       const allA = state.assignments.filter(a => a.woNumber===wo.woNumber && !isPoolAssignment(a));
       const pct  = allA.length ? Math.round(allA.filter(a=>a.status==='Complete').length/allA.length*100) : 0;
+      const estH   = wo.operations.reduce((s,o) => s + (o.estHours||0), 0);
+      const schedH = state.assignments.filter(a => a.woNumber===wo.woNumber).reduce((s,a) => s + (a.hours||0), 0);
 
       // Bar position (clamped to visible range for display; -1 = not in range)
       const bStart = ws ? ganttDates.findIndex(d => d >= ws) : -1;
@@ -3550,7 +3552,7 @@ function renderGanttView(html, dates) {
             title="Drag to change start date">◁</div>
           <!-- Label -->
           <span style="position:relative;z-index:1;padding:0 ${handleW+2}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:9px;font-weight:700;color:#FFF;flex:1;min-width:0;text-align:center">
-            ${barWid>60?wo.woNumber+(barWid>130?' · '+wo.description.substring(0,12)+(wo.description.length>12?'…':''):''):''}
+            ${barWid>60?wo.woNumber+(barWid>110?' · '+wo.description.substring(0,barWid>180?16:9)+(wo.description.length>(barWid>180?16:9)?'…':''):'')+(barWid>155?'  '+schedH.toFixed(1)+'/'+estH.toFixed(1)+'h':''):''}
           </span>
           <!-- RIGHT resize handle (change end date) -->
           <div draggable="true"
