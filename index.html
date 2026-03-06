@@ -1776,6 +1776,14 @@ function isPoolAssignment(a) {
 function getPoolCraft(a) {
   return a.employeeName.replace('__POOL:', '');
 }
+function getDisplayName(a) {
+  // Returns a clean human-readable label for an assignment
+  if (!isPoolAssignment(a)) return a.employeeName;
+  const craft = getPoolCraft(a);
+  const op = getAllOps().find(o => o.woNumber === a.woNumber && o.opSeq === a.opSeq);
+  const dept = op ? (state.workOrders.find(w => w.woNumber === a.woNumber) || {}).department || craft : craft;
+  return dept + ' / ' + craft;
+}
 
 function setResourceCapacity(craft, headcount, hoursPerDay) {
   state.resourceCapacity[craft] = { headcount, hoursPerDay, auto: false };
@@ -2502,29 +2510,25 @@ function exportSchedule() {
   const woRows = [woHeaders];
   exportWOs.forEach(wo => {
     wo.operations.forEach(op => {
-      const assignment = state.assignments.find(a => a.woNumber === wo.woNumber && a.opSeq === op.opSeq);
-      woRows.push([
-        wo.woNumber,
-        wo.description,
-        wo.department,
-        wo.priority,
-        wo.woType || '',
-        wo.isPM ? 'Yes' : 'No',
-        wo.asset || '',
-        wo.assetDesc || '',
-        wo.scheduledStart || '',
-        wo.scheduledEnd || '',
-        wo.supervisor || '',
-        op.opSeq,
-        op.description,
-        op.craft,
-        op.estHours,
-        (op.dependencies || []).join(','),
-        assignment ? assignment.employeeName : '',
-        assignment ? assignment.date : '',
-        assignment ? assignment.hours : '',
-        assignment ? (assignment.status || 'Scheduled') : ''
-      ]);
+      const opAssigns = state.assignments.filter(a => a.woNumber === wo.woNumber && a.opSeq === op.opSeq);
+      const baseRow = [
+        wo.woNumber, wo.description, wo.department, wo.priority,
+        wo.woType || '', wo.isPM ? 'Yes' : 'No',
+        wo.asset || '', wo.assetDesc || '',
+        wo.scheduledStart || '', wo.scheduledEnd || '', wo.supervisor || '',
+        op.opSeq, op.description, op.craft, op.estHours,
+        (op.dependencies || []).join(',')
+      ];
+      if (opAssigns.length === 0) {
+        woRows.push([...baseRow, '', '', '', '']);
+      } else {
+        opAssigns.forEach(a => {
+          woRows.push([...baseRow,
+            isPoolAssignment(a) ? getDisplayName(a) : a.employeeName,
+            a.date, a.hours, a.status || 'Scheduled'
+          ]);
+        });
+      }
     });
   });
   
@@ -2572,7 +2576,10 @@ function exportSchedule() {
     const dayHours = dates.map(d => empSchedule['__POOL:' + craft]?.[d] || 0);
     const total = dayHours.reduce((s,h) => s+h, 0);
     if (total > 0) {
-      sumRows.push(['', craft + ' (Pool)', '', craft, ...dayHours, total]);
+      // Find the dept for this craft from any matching WO
+      const sampleAssign = state.assignments.find(a => isPoolAssignment(a) && getPoolCraft(a) === craft && exportWONums.has(a.woNumber));
+      const dept = sampleAssign ? (state.workOrders.find(w => w.woNumber === sampleAssign.woNumber) || {}).department || '' : '';
+      sumRows.push(['Pool', dept + ' / ' + craft, dept, craft, ...dayHours, total]);
     }
   });
   
@@ -2860,7 +2867,7 @@ function showAssignModal(op, preDate) {
     existHtml = `<div style="margin-bottom:12px">
       <div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Current Assignments (${assignedH}/${op.estHours}h)</div>
       ${existingAssignments.map(a => `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg-base);border-radius:4px;font-size:10px;margin-bottom:3px">
-        <span style="flex:1;color:var(--text-primary);font-weight:600">${a.employeeName}</span>
+        <span style="flex:1;color:var(--text-primary);font-weight:600">${isPoolAssignment(a) ? getDisplayName(a) : a.employeeName}</span>
         <span style="color:var(--text-secondary)">${fmtDate(a.date)}</span>
         <span style="color:var(--accent);font-weight:600">${a.hours}h</span>
         <button style="background:none;border:none;color:#DC354588;cursor:pointer;font-size:12px;padding:2px" onclick="removeAssignment('${a.id}');this.closest('.modal-overlay').remove();showAssignModal(getAllOps().find(o=>o.woNumber==='${op.woNumber}'&&o.opSeq===${op.opSeq}))">x</button>
@@ -4292,11 +4299,14 @@ function ganttPanelRefresh() {
       const dayAvail = getEmpAvailHours ? getEmpAvailHours(a.employeeName, a.date) : 8;
       const dayPct = dayAvail > 0 ? Math.min(100, dayLoad / dayAvail * 100) : 0;
       const dayColor = dayPct > 100 ? '#DC3545' : dayPct > 85 ? '#F0AD4E' : '#28A745';
-      const ini = a.employeeName.split(' ').map(w => w[0] || '').join('').substring(0,2).toUpperCase();
+      const isPool = isPoolAssignment(a);
+      const displayName = getDisplayName(a);
+      const ini = isPool ? '◉' : a.employeeName.split(' ').map(w => w[0] || '').join('').substring(0,2).toUpperCase();
+      const avatarBg = isPool ? '#17A2B8' : cc.badge;
       return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg-base);border-radius:5px;margin-bottom:4px;border:1px solid var(--border)">
-        <span style="width:26px;height:26px;border-radius:50%;background:${cc.badge};color:#FFF;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ini}</span>
+        <span style="width:26px;height:26px;border-radius:50%;background:${avatarBg};color:#FFF;font-size:${isPool?'12':'9'}px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ini}</span>
         <div style="flex:1;min-width:0">
-          <div style="font-size:10px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.employeeName}</div>
+          <div style="font-size:10px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${displayName}</div>
           <div style="font-size:9px;color:var(--text-secondary)">${fmtDate(a.date)} · ${a.hours}h</div>
           <div style="display:flex;align-items:center;gap:4px;margin-top:2px">
             <div style="flex:1;height:3px;background:var(--cap-bar-bg);border-radius:2px;overflow:hidden">
