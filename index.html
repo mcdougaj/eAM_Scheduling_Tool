@@ -6383,7 +6383,50 @@ function render() {
     </div>
   </div>`;
 
+  // ── Save scroll positions before DOM wipe ──
+  const _sv = (() => {
+    const s = {};
+    // Gantt inner scroll
+    const gs = document.getElementById('gantt-scroll');
+    if (gs) { s.ganttL = gs.scrollLeft; s.ganttT = gs.scrollTop; }
+    // Schedule grid wrap
+    const sgw = document.querySelector('.schedule-grid-wrap');
+    if (sgw) { s.sgwL = sgw.scrollLeft; s.sgwT = sgw.scrollTop; }
+    const sgwP = sgw ? sgw.closest('.content') : null;
+    if (sgwP) { s.sgwPT = sgwP.scrollTop; }
+    // Sidebar (backlog)
+    const sb = document.querySelector('.sidebar-content');
+    if (sb) { s.sbT = sb.scrollTop; }
+    // Generic content divs
+    const ct = document.querySelector('.content');
+    if (ct) { s.ctT = ct.scrollTop; }
+    // Heatmap / capacity scroll
+    const hw = document.querySelector('.heatmap-wrap');
+    if (hw) { s.hwL = hw.scrollLeft; s.hwT = hw.scrollTop; }
+    // Window scroll (page level)
+    s.winX = window.scrollX; s.winY = window.scrollY;
+    return s;
+  })();
+
   document.getElementById('app').innerHTML = html;
+
+  // ── Restore scroll positions after DOM rebuild ──
+  requestAnimationFrame(() => {
+    const gs = document.getElementById('gantt-scroll');
+    if (gs && _sv.ganttL !== undefined) { gs.scrollLeft = _sv.ganttL; gs.scrollTop = _sv.ganttT || 0; }
+    const sgw = document.querySelector('.schedule-grid-wrap');
+    if (sgw && _sv.sgwL !== undefined) { sgw.scrollLeft = _sv.sgwL; sgw.scrollTop = _sv.sgwT || 0; }
+    const sgwP = sgw ? sgw.closest('.content') : null;
+    if (sgwP && _sv.sgwPT !== undefined) sgwP.scrollTop = _sv.sgwPT;
+    const sb = document.querySelector('.sidebar-content');
+    if (sb && _sv.sbT !== undefined) sb.scrollTop = _sv.sbT;
+    const ct = document.querySelector('.content');
+    if (ct && _sv.ctT !== undefined) ct.scrollTop = _sv.ctT;
+    const hw = document.querySelector('.heatmap-wrap');
+    if (hw && _sv.hwL !== undefined) { hw.scrollLeft = _sv.hwL; hw.scrollTop = _sv.hwT || 0; }
+    if (_sv.winY) window.scrollTo(_sv.winX || 0, _sv.winY);
+  });
+
   setTimeout(ganttAutoScroll, 0);
   setTimeout(drawGanttDepLines, 80);
   
