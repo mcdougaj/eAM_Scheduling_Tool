@@ -2041,7 +2041,7 @@ const ORACLE_SQL = {
     WHERE wo.wip_entity_id IN (${wipEntityIds.join(',')})
     ORDER BY wo.wip_entity_id, wo.operation_seq_num`,
 
-  employees: (deptCodes, orgCode, resourceCodes) => `
+  employees: (deptCodes, orgCode) => `
     SELECT DISTINCT
       papf.employee_number, papf.full_name AS employee_name, papf.email_address,
       bd.department_code, bd.description AS department_name,
@@ -2061,9 +2061,6 @@ const ORACLE_SQL = {
       AND br.disable_date IS NULL
       ${deptCodes && deptCodes.length > 0
         ? `AND bd.department_code IN (${deptCodes.map(d => "'" + d.replace(/'/g, "''") + "'").join(',')})`
-        : ''}
-      ${resourceCodes && resourceCodes.length > 0
-        ? `AND br.resource_code IN (${resourceCodes.map(r => "'" + r.replace(/'/g, "''") + "'").join(',')})`
         : ''}
     ORDER BY bd.department_code, br.resource_code, papf.full_name`
 };
@@ -2132,13 +2129,9 @@ async function pullFromOracle() {
           orgNumId = orgResult.data[0].ORGANIZATION_ID || orgResult.data[0].organization_id || 0;
         }
       }
-      // Collect resource codes from WO operations to filter employees
-      const woResourceCodes = [...new Set(
-        state.workOrders.flatMap(wo => wo.operations.map(op => op.craft))
-      )].filter(r => r && r !== 'General');
-      state.oracleSyncProgress = `Pulling resource instances matching ${woResourceCodes.length} resource(s) in ${woDepts.length} department(s)...`;
+      state.oracleSyncProgress = `Pulling resource instances for ${woDepts.length} department(s)...`;
       render();
-      const empResult = await oracleSQL(ORACLE_SQL.employees(woDepts, c.orgId || 'FAC', woResourceCodes));
+      const empResult = await oracleSQL(ORACLE_SQL.employees(woDepts, c.orgId || 'FAC'));
       if (empResult.success && empResult.data) {
         state.employees = mapOracleEmployees(empResult.data, woDepts);
       }
